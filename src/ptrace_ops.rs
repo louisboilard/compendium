@@ -235,8 +235,14 @@ pub(crate) fn spawn_traced(command: &str, args: &[String]) -> Result<Pid> {
             let cmd = CString::new(command).unwrap();
             let mut argv: Vec<CString> = vec![cmd.clone()];
             argv.extend(args.iter().map(|a| CString::new(a.as_str()).unwrap()));
-            execvp(&cmd, &argv).expect("execvp failed");
-            unreachable!()
+            // execvp returns Result<Infallible, Errno> — on success the process
+            // image is replaced and this code never continues. The empty match on
+            // the uninhabited Ok(Infallible) proves to the compiler that the
+            // success path can never reach here, satisfying the Result<Pid> return type.
+            match execvp(&cmd, &argv) {
+                Ok(void) => match void {},
+                Err(e) => panic!("execvp failed: {e}"),
+            }
         }
     }
 }
