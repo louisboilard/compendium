@@ -5,7 +5,7 @@ edition = "2024"
 description = "A user-friendly strace for x86 Linux with HTML reports"
 
 [dependencies]
-nix = { version = "0.29", features = ["ptrace", "signal", "process"] }
+nix = { version = "0.31", features = ["ptrace", "signal", "process"] }
 libc = "0.2"
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
