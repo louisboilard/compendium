@@ -367,3 +367,17 @@ pub fn name(num: u64) -> &'static str {
         _ => "unknown",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn syscall_name_lookup() {
+        assert_eq!(name(0), "read");
+        assert_eq!(name(1), "write");
+        assert_eq!(name(59), "execve");
+        assert_eq!(name(257), "openat");
+        assert_eq!(name(9999), "unknown");
+    }
+}

@@ -185,3 +185,255 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::{EventKind, IoTarget, TraceEvent};
+
+    // html_escape tests
+
+    #[test]
+    fn html_escape_plain_text() {
+        assert_eq!(html_escape("hello world"), "hello world");
+    }
+
+    #[test]
+    fn html_escape_special_chars() {
+        assert_eq!(
+            html_escape("<script>&\"test\"</script>"),
+            "&lt;script&gt;&amp;&quot;test&quot;&lt;/script&gt;"
+        );
+    }
+
+    #[test]
+    fn html_escape_empty() {
+        assert_eq!(html_escape(""), "");
+    }
+
+    // coalesce_events tests
+
+    #[test]
+    fn coalesce_empty() {
+        let result = coalesce_events(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn coalesce_consecutive_reads_same_pid_file() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 100,
+                kind: EventKind::Read {
+                    bytes: 1024,
+                    filename: "data.txt".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 100,
+                kind: EventKind::Read {
+                    bytes: 2048,
+                    filename: "data.txt".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 1);
+        match &result[0].kind {
+            EventKind::Read { bytes, count, .. } => {
+                assert_eq!(*bytes, 3072);
+                assert_eq!(*count, Some(2));
+            }
+            _ => panic!("expected Read"),
+        }
+    }
+
+    #[test]
+    fn coalesce_different_pid_not_merged() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 100,
+                kind: EventKind::Read {
+                    bytes: 1024,
+                    filename: "data.txt".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 200,
+                kind: EventKind::Read {
+                    bytes: 2048,
+                    filename: "data.txt".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn coalesce_non_io_breaks_merge() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 100,
+                kind: EventKind::Send {
+                    bytes: 100,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 100,
+                kind: EventKind::Open {
+                    path: "/tmp/x".to_string(),
+                    writable: false,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.3,
+                pid: 100,
+                kind: EventKind::Send {
+                    bytes: 200,
+                    count: None,
+                },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn coalesce_mixed_types() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 1,
+                kind: EventKind::Read {
+                    bytes: 10,
+                    filename: "a".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 1,
+                kind: EventKind::Read {
+                    bytes: 20,
+                    filename: "a".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.3,
+                pid: 1,
+                kind: EventKind::Write {
+                    bytes: 50,
+                    filename: "b".to_string(),
+                    target: IoTarget::File,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.4,
+                pid: 1,
+                kind: EventKind::Send {
+                    bytes: 100,
+                    count: None,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.5,
+                pid: 1,
+                kind: EventKind::Send {
+                    bytes: 200,
+                    count: None,
+                },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 3); // Read(merged), Write, Send(merged)
+        match &result[0].kind {
+            EventKind::Read { bytes, count, .. } => {
+                assert_eq!(*bytes, 30);
+                assert_eq!(*count, Some(2));
+            }
+            _ => panic!("expected Read"),
+        }
+        match &result[2].kind {
+            EventKind::Send { bytes, count } => {
+                assert_eq!(*bytes, 300);
+                assert_eq!(*count, Some(2));
+            }
+            _ => panic!("expected Send"),
+        }
+    }
+
+    // generate test
+
+    #[test]
+    fn generate_writes_valid_html() {
+        let dir = std::env::temp_dir().join("compendium_test_report");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_report.html");
+        let path_str = path.to_str().unwrap();
+
+        let events = vec![TraceEvent {
+            timestamp_secs: 0.1,
+            pid: 42,
+            kind: EventKind::Open {
+                path: "/tmp/test".to_string(),
+                writable: false,
+            },
+        }];
+        let summary = ReportSummary {
+            command: "test-cmd".to_string(),
+            duration_secs: 1.5,
+            duration_display: "1.5s".to_string(),
+            event_count: 1,
+            heap_bytes: 0,
+            mmap_bytes: 0,
+            mmap_regions: 0,
+            total_memory: 0,
+            file_bytes_read: 0,
+            file_bytes_written: 0,
+            net_bytes_sent: 0,
+            net_bytes_received: 0,
+            files_read: 1,
+            files_written: 0,
+            connections: vec![],
+            subprocesses: vec![],
+            exit_status: "0".to_string(),
+            page_faults: 0,
+            page_fault_bytes: 0,
+            perf_enabled: false,
+            truncated: None,
+            original_event_count: None,
+        };
+
+        generate(&events, &summary, path_str).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("<title>Compendium Trace Report</title>"));
+        assert!(content.contains("TRACE_EVENTS"));
+        assert!(content.contains("TRACE_SUMMARY"));
+        assert!(content.contains("test-cmd"));
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+}

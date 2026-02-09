@@ -1,7 +1,8 @@
 # compendium
 
 A user-friendly strace like tracer for x86 Linux with HTML reports.
-See syscalls and display files opened, network connections, memory allocations, and more.
+See's syscalls and display files opened, network connections, memory allocations
+and more!
 
 ![Compendium HTML Report](assets/compendium.png)
 

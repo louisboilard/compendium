@@ -202,3 +202,171 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     };
     format!("{:>8}", s) // Right-align to 8 chars for consistent column width
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // format_bytes tests
+
+    #[test]
+    fn format_bytes_zero() {
+        assert_eq!(format_bytes(0), "     0 B");
+    }
+
+    #[test]
+    fn format_bytes_bytes_range() {
+        assert_eq!(format_bytes(999), "   999 B");
+    }
+
+    #[test]
+    fn format_bytes_kb_boundary() {
+        assert_eq!(format_bytes(1024), "  1.0 KB");
+    }
+
+    #[test]
+    fn format_bytes_mb_boundary() {
+        assert_eq!(format_bytes(1_048_576), "  1.0 MB");
+    }
+
+    #[test]
+    fn format_bytes_gb_boundary() {
+        assert_eq!(format_bytes(1_073_741_824), "  1.0 GB");
+    }
+
+    // ProcessBrk tests
+
+    #[test]
+    fn brk_first_update_sets_initial() {
+        let mut brk = ProcessBrk::default();
+        let result = brk.update(0x1000);
+        assert_eq!(result, None);
+        assert_eq!(brk.initial_brk, Some(0x1000));
+        assert_eq!(brk.current_brk, 0x1000);
+    }
+
+    #[test]
+    fn brk_second_update_returns_growth() {
+        let mut brk = ProcessBrk::default();
+        brk.update(0x1000);
+        let result = brk.update(0x2000);
+        assert_eq!(result, Some(0x1000));
+    }
+
+    #[test]
+    fn brk_no_growth_returns_none() {
+        let mut brk = ProcessBrk::default();
+        brk.update(0x2000);
+        let result = brk.update(0x2000);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn brk_heap_size() {
+        let mut brk = ProcessBrk::default();
+        brk.update(0x1000);
+        brk.update(0x3000);
+        assert_eq!(brk.heap_size(), 0x2000);
+    }
+
+    #[test]
+    fn brk_reset_clears_state() {
+        let mut brk = ProcessBrk::default();
+        brk.update(0x1000);
+        brk.update(0x2000);
+        brk.reset();
+        assert_eq!(brk.initial_brk, None);
+        assert_eq!(brk.current_brk, 0);
+        // After reset, next update sets new initial
+        let result = brk.update(0x5000);
+        assert_eq!(result, None);
+        assert_eq!(brk.initial_brk, Some(0x5000));
+    }
+
+    // FdTable tests
+
+    #[test]
+    fn fd_table_add_file_and_query() {
+        let mut fds = FdTable::default();
+        fds.add_file(3, "/home/user/data.txt".to_string(), false);
+        assert!(fds.is_file(3));
+        assert!(!fds.is_socket(3));
+        assert_eq!(fds.file_path(3), Some("/home/user/data.txt"));
+        assert_eq!(fds.file_name(3), Some("data.txt"));
+    }
+
+    #[test]
+    fn fd_table_add_socket_and_set_remote() {
+        let mut fds = FdTable::default();
+        fds.add_socket(4, "tcp4".to_string());
+        assert!(fds.is_socket(4));
+        assert!(!fds.is_file(4));
+        fds.set_socket_remote(4, "93.184.216.34:443".to_string());
+        match fds.get(4) {
+            Some(FdKind::Socket { remote, .. }) => {
+                assert_eq!(remote.as_deref(), Some("93.184.216.34:443"));
+            }
+            _ => panic!("expected socket"),
+        }
+    }
+
+    #[test]
+    fn fd_table_dup_and_remove() {
+        let mut fds = FdTable::default();
+        fds.add_file(3, "/tmp/foo".to_string(), true);
+        fds.dup(3, 10);
+        assert!(fds.is_file(10));
+        assert_eq!(fds.file_path(10), Some("/tmp/foo"));
+        fds.remove(3);
+        assert!(fds.get(3).is_none());
+        assert!(fds.is_file(10)); // dup'd fd still exists
+    }
+
+    #[test]
+    fn fd_table_file_name_extracts_basename() {
+        let mut fds = FdTable::default();
+        fds.add_file(5, "/a/b/c/deep.txt".to_string(), false);
+        assert_eq!(fds.file_name(5), Some("deep.txt"));
+    }
+
+    #[test]
+    fn fd_table_nonexistent_fd() {
+        let fds = FdTable::default();
+        assert!(fds.get(99).is_none());
+        assert!(!fds.is_file(99));
+        assert!(!fds.is_socket(99));
+        assert_eq!(fds.file_path(99), None);
+        assert_eq!(fds.file_name(99), None);
+    }
+
+    // MemoryStats tests
+
+    #[test]
+    fn memory_stats_add_and_lookup() {
+        let mut mem = MemoryStats::default();
+        mem.add_mmap(0x7f000000, 4096, "libc.so".to_string(), "r-x".to_string());
+        let result = mem.lookup_addr_full(0x7f000100);
+        assert_eq!(result, Some(("libc.so", "r-x", 0x7f000000)));
+        assert_eq!(mem.mmap_total, 4096);
+    }
+
+    #[test]
+    fn memory_stats_lookup_outside_region() {
+        let mut mem = MemoryStats::default();
+        mem.add_mmap(0x7f000000, 4096, "libc.so".to_string(), "r-x".to_string());
+        assert_eq!(mem.lookup_addr_full(0x80000000), None);
+    }
+
+    #[test]
+    fn memory_stats_remove_mmap() {
+        let mut mem = MemoryStats::default();
+        mem.add_mmap(0x7f000000, 4096, "anon".to_string(), "rw-".to_string());
+        mem.add_mmap(0x7f001000, 8192, "anon".to_string(), "rw-".to_string());
+        assert_eq!(mem.mmap_total, 4096 + 8192);
+        mem.remove_mmap(0x7f000000, 4096);
+        assert_eq!(mem.mmap_total, 8192);
+        assert!(mem.lookup_addr_full(0x7f000000).is_none());
+        // Second region still present
+        assert!(mem.lookup_addr_full(0x7f001000).is_some());
+    }
+}
