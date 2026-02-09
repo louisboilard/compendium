@@ -137,3 +137,56 @@ impl EventKind {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_mapping() {
+        assert_eq!(
+            EventKind::Open {
+                path: String::new(),
+                writable: false
+            }
+            .category(),
+            EventCategory::File
+        );
+        assert_eq!(
+            EventKind::Send {
+                bytes: 0,
+                count: None
+            }
+            .category(),
+            EventCategory::Network
+        );
+        assert_eq!(
+            EventKind::Mmap {
+                addr: String::new(),
+                end_addr: String::new(),
+                size: 0,
+                prot: String::new(),
+                map_type: String::new(),
+            }
+            .category(),
+            EventCategory::Memory
+        );
+        assert_eq!(
+            EventKind::Read {
+                bytes: 0,
+                filename: String::new(),
+                target: IoTarget::File,
+                count: None,
+            }
+            .category(),
+            EventCategory::Io
+        );
+        assert_eq!(
+            EventKind::Exec {
+                program: String::new()
+            }
+            .category(),
+            EventCategory::Process
+        );
+    }
+}
