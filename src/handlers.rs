@@ -28,7 +28,7 @@ impl Tracer {
             let syscall_num = regs.orig_rax;
             let args = [regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9];
 
-            if self.verbose {
+            if self.config.verbose {
                 eprintln!("[{}] {}(...)", pid, syscalls::name(syscall_num));
             }
 

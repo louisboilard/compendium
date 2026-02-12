@@ -23,7 +23,9 @@ mod types;
 
 use events::{EventKind, TraceEvent};
 use perf::PerfPageFaultTracker;
-use types::*;
+use types::{
+    Config, FdTable, IoStats, MemoryStats, OutputCtx, ProcessBrk, ProcessState, Summary,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "compendium")]
@@ -67,21 +69,18 @@ struct Args {
 // ============================================================================
 
 pub(crate) struct Tracer {
+    pub(crate) config: Config,
     pub(crate) processes: HashMap<Pid, ProcessState>,
     pub(crate) memory: HashMap<Pid, MemoryStats>,
     pub(crate) io: IoStats,
     pub(crate) summary: Summary,
-    pub(crate) verbose: bool,
     pub(crate) initial_pid: Option<Pid>,
     pub(crate) start_time: Instant,
-    pub(crate) cmd_display: String,
     pub(crate) page_faults: u64,
     pub(crate) page_size: u64,
     pub(crate) perf_enabled: bool,
     pub(crate) output_file: Option<File>,
     pub(crate) events: Vec<TraceEvent>,
-    pub(crate) report_path: Option<String>,
-    pub(crate) max_report_events: usize,
     pub(crate) total_heap_bytes: u64,
     pub(crate) interrupt_count: u8,
 }
@@ -100,24 +99,35 @@ impl Tracer {
             None => None,
         };
         Ok(Tracer {
+            config: Config {
+                verbose,
+                max_report_events,
+                report_path,
+                cmd_display,
+            },
             processes: HashMap::new(),
             memory: HashMap::new(),
             io: IoStats::default(),
             summary: Summary::default(),
-            verbose,
             initial_pid: None,
             start_time: Instant::now(),
-            cmd_display,
             page_faults: 0,
             page_size,
             perf_enabled: false,
             output_file,
             events: Vec::new(),
-            report_path,
-            max_report_events,
             total_heap_bytes: 0,
             interrupt_count: 0,
         })
+    }
+
+    pub(crate) fn output_ctx(&mut self) -> OutputCtx<'_> {
+        OutputCtx {
+            events: &mut self.events,
+            output_file: &mut self.output_file,
+            start_time: self.start_time,
+            multi_process: self.processes.len() > 1,
+        }
     }
 
     pub(crate) fn record_event(&mut self, pid: Pid, kind: EventKind) {

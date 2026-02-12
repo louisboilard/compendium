@@ -24,7 +24,7 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
     };
 
     report::ReportSummary {
-        command: tracer.cmd_display.clone(),
+        command: tracer.config.cmd_display.clone(),
         duration_secs: elapsed,
         duration_display: format!("{:.2}s", elapsed),
         event_count: tracer.events.len(),
@@ -128,10 +128,10 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     tracer.output("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Generate HTML report if requested
-    if let Some(ref report_path) = tracer.report_path {
+    if let Some(ref report_path) = tracer.config.report_path {
         let original_count = tracer.events.len();
         let coalesced = report::coalesce_events(&tracer.events);
-        let max = tracer.max_report_events;
+        let max = tracer.config.max_report_events;
 
         let (report_events, report_summary) = if coalesced.len() > max {
             let mut capped: Vec<TraceEvent> = coalesced.into_iter().take(max).collect();
