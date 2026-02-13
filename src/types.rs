@@ -1,12 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::Write;
-use std::time::Instant;
 
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
-
-use crate::events::{EventKind, TraceEvent};
 
 /// Immutable configuration for the tracer
 pub struct Config {
@@ -14,40 +9,6 @@ pub struct Config {
     pub max_report_events: usize,
     pub report_path: Option<String>,
     pub cmd_display: String,
-}
-
-/// Context for output operations
-pub struct OutputCtx<'a> {
-    pub events: &'a mut Vec<TraceEvent>,
-    pub output_file: &'a mut Option<File>,
-    pub start_time: Instant,
-    pub multi_process: bool,
-}
-
-impl OutputCtx<'_> {
-    pub fn output(&mut self, msg: &str) {
-        eprintln!("{}", msg);
-        if let Some(ref mut f) = self.output_file {
-            let _ = writeln!(f, "{}", msg);
-        }
-    }
-
-    pub fn record_event(&mut self, pid: Pid, kind: EventKind) {
-        self.events.push(TraceEvent {
-            timestamp_secs: self.start_time.elapsed().as_secs_f64(),
-            pid: pid.as_raw(),
-            kind,
-        });
-    }
-
-    pub fn event_prefix(&self, pid: Pid) -> String {
-        let elapsed = self.start_time.elapsed().as_secs_f64();
-        if self.multi_process {
-            format!("[+{:.3}s] [{}]", elapsed, pid)
-        } else {
-            format!("[+{:.3}s]", elapsed)
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

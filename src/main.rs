@@ -23,9 +23,7 @@ mod types;
 
 use events::{EventKind, TraceEvent};
 use perf::PerfPageFaultTracker;
-use types::{
-    Config, FdTable, IoStats, MemoryStats, OutputCtx, ProcessBrk, ProcessState, Summary,
-};
+use types::{Config, FdTable, IoStats, MemoryStats, ProcessBrk, ProcessState, Summary};
 
 #[derive(Parser, Debug)]
 #[command(name = "compendium")]
@@ -121,15 +119,6 @@ impl Tracer {
         })
     }
 
-    pub(crate) fn output_ctx(&mut self) -> OutputCtx<'_> {
-        OutputCtx {
-            events: &mut self.events,
-            output_file: &mut self.output_file,
-            start_time: self.start_time,
-            multi_process: self.processes.len() > 1,
-        }
-    }
-
     pub(crate) fn record_event(&mut self, pid: Pid, kind: EventKind) {
         self.events.push(TraceEvent {
             timestamp_secs: self.start_time.elapsed().as_secs_f64(),
@@ -143,6 +132,16 @@ impl Tracer {
         eprintln!("{}", msg);
         if let Some(ref mut f) = self.output_file {
             let _ = writeln!(f, "{}", msg);
+        }
+    }
+
+    /// Format the event prefix: "[+0.001s]" or "[+0.001s] [1234]" if multiple tasks
+    pub(crate) fn event_prefix(&self, pid: Pid) -> String {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        if self.processes.len() > 1 {
+            format!("[+{:.3}s] [{}]", elapsed, pid)
+        } else {
+            format!("[+{:.3}s]", elapsed)
         }
     }
 
@@ -168,21 +167,6 @@ impl Tracer {
             .map(|p| p.leader_pid)
             .unwrap_or(pid);
         self.memory.entry(leader).or_default()
-    }
-
-    /// Returns true if we're tracing multiple tasks (processes or threads)
-    fn has_multiple_tasks(&self) -> bool {
-        self.processes.len() > 1
-    }
-
-    /// Format the event prefix: "[+0.001s]" or "[+0.001s] [1234]" if multiple tasks
-    pub(crate) fn event_prefix(&self, pid: Pid) -> String {
-        let elapsed = self.start_time.elapsed().as_secs_f64();
-        if self.has_multiple_tasks() {
-            format!("[+{:.3}s] [{}]", elapsed, pid)
-        } else {
-            format!("[+{:.3}s]", elapsed)
-        }
     }
 
     fn run(&mut self, initial_pid: Pid, track_faults: bool, attached: bool) -> Result<()> {

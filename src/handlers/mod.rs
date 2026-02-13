@@ -4,14 +4,12 @@ mod memory;
 mod page_faults;
 mod utils;
 
-pub(crate) use utils::{is_lib_dir, should_ignore_path};
-
 use anyhow::{Context, Result};
 use nix::sys::ptrace;
 use nix::unistd::Pid;
 
 use crate::types::*;
-use crate::{memory, syscalls, Tracer};
+use crate::{memory as tracee_mem, syscalls, Tracer};
 
 impl Tracer {
     pub(crate) fn handle_syscall(&mut self, pid: Pid) -> Result<()> {
@@ -41,7 +39,7 @@ impl Tracer {
             // Handle execve at entry (doesn't return on success)
             if syscalls::name(syscall_num) == "execve"
                 && (Some(pid) != self.initial_pid || !self.summary.subprocesses.is_empty())
-                && let Ok(path) = memory::read_string(pid, args[0] as usize)
+                && let Ok(path) = tracee_mem::read_string(pid, args[0] as usize)
             {
                 let cmd = path.split('/').next_back().unwrap_or(&path).to_string();
                 if !cmd.is_empty() {
