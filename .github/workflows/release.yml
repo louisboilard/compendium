@@ -57,23 +57,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download all artifacts
+      - name: Download artifact
         uses: actions/download-artifact@v7
         with:
-          path: artifacts
-
-      - name: Prepare release assets
-        run: |
-          mkdir -p release_assets
-          for dir in artifacts/*/; do
-            asset_name=$(basename "$dir")
-            mv "$dir$asset_name" "release_assets/$asset_name"
-          done
+          name: compendium-linux-x86_64
+          path: release_assets
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release_assets/*
+          files: release_assets/compendium-linux-x86_64
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
