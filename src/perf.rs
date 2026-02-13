@@ -5,8 +5,6 @@ use std::io;
 use std::os::unix::io::AsRawFd;
 
 pub struct PageFaultEvent {
-    #[allow(dead_code)]
-    pub pid: u32,
     pub tid: u32,
     pub addr: u64,
 }
@@ -44,7 +42,6 @@ impl PerfPageFaultTracker {
         while let Some(record) = self.sampler.next_record() {
             if let Ok(perf_event::data::Record::Sample(sample)) = record.parse_record() {
                 events.push(PageFaultEvent {
-                    pid: sample.pid().unwrap_or(0),
                     tid: sample.tid().unwrap_or(0),
                     addr: sample.addr().unwrap_or(0),
                 });

@@ -189,6 +189,13 @@ impl ProcessBrk {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct PerfState {
+    pub(crate) enabled: bool,
+    pub(crate) page_faults: u64,
+    pub(crate) page_size: u64,
+}
+
 pub(crate) struct ProcessState {
     pub(crate) in_syscall: bool,
     pub(crate) last_syscall: Option<u64>,
@@ -208,7 +215,7 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{} B", bytes)
     };
-    format!("{:>8}", s) // Right-align to 8 chars for consistent column width
+    format!("{:>8}", s)
 }
 
 #[cfg(test)]

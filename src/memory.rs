@@ -104,33 +104,3 @@ pub fn read_sockaddr(pid: Pid, addr: usize, len: usize) -> Result<String> {
     }
 }
 
-/// Write data to tracee's memory (useful for injection experiments)
-#[allow(dead_code)]
-pub fn write_buffer(pid: Pid, addr: usize, data: &[u8]) -> Result<()> {
-    let mut current_addr = addr;
-    let mut offset = 0;
-
-    while offset < data.len() {
-        // Read existing word
-        let mut word = ptrace::read(pid, current_addr as *mut _)
-            .context("Failed to read from tracee memory")? as u64;
-
-        // Modify bytes
-        for i in 0..8 {
-            if offset + i < data.len() {
-                // Clear the byte and set new value
-                word &= !(0xff << (i * 8));
-                word |= (data[offset + i] as u64) << (i * 8);
-            }
-        }
-
-        // Write back
-        ptrace::write(pid, current_addr as *mut _, word as i64)
-            .context("Failed to write to tracee memory")?;
-
-        current_addr += 8;
-        offset += 8;
-    }
-
-    Ok(())
-}

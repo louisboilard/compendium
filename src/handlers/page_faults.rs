@@ -27,19 +27,18 @@ impl Tracer {
             let pid = Pid::from_raw(event.tid as i32);
 
             // Check if address is in heap (per-process) or anon mmap region
-            let leader = self
-                .processes
-                .get(&pid)
-                .map(|p| p.leader_pid)
-                .unwrap_or(pid);
-            let in_heap = self.processes.get(&pid).and_then(|proc| {
-                let initial = proc.brk.initial_brk?;
-                if event.addr >= initial && event.addr < proc.brk.current_brk {
-                    Some(initial)
-                } else {
-                    None
-                }
-            });
+            let (leader, in_heap) = if let Some(proc) = self.processes.get(&pid) {
+                let heap_start = proc.brk.initial_brk.and_then(|initial| {
+                    if event.addr >= initial && event.addr < proc.brk.current_brk {
+                        Some(initial)
+                    } else {
+                        None
+                    }
+                });
+                (proc.leader_pid, heap_start)
+            } else {
+                (pid, None)
+            };
             let region_info: Option<(String, String, u64)> = if let Some(initial) = in_heap {
                 Some(("heap".to_string(), "rw-".to_string(), initial))
             } else {
@@ -55,7 +54,7 @@ impl Tracer {
                     continue;
                 }
 
-                self.page_faults += 1;
+                self.perf.page_faults += 1;
 
                 // Check if this continues the current group
                 if let Some(last) = groups.last_mut()

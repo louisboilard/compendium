@@ -1,6 +1,6 @@
 mod fd;
 mod io;
-mod memory;
+mod mem;
 mod page_faults;
 mod utils;
 
@@ -9,7 +9,7 @@ use nix::sys::ptrace;
 use nix::unistd::Pid;
 
 use crate::types::*;
-use crate::{memory as tracee_mem, syscalls, Tracer};
+use crate::{memory, syscalls, Tracer};
 
 impl Tracer {
     pub(crate) fn handle_syscall(&mut self, pid: Pid) -> Result<()> {
@@ -37,9 +37,9 @@ impl Tracer {
             }
 
             // Handle execve at entry (doesn't return on success)
-            if syscalls::name(syscall_num) == "execve"
+            if syscall_num as i64 == libc::SYS_execve
                 && (Some(pid) != self.initial_pid || !self.summary.subprocesses.is_empty())
-                && let Ok(path) = tracee_mem::read_string(pid, args[0] as usize)
+                && let Ok(path) = memory::read_string(pid, args[0] as usize)
             {
                 let cmd = path.split('/').next_back().unwrap_or(&path).to_string();
                 if !cmd.is_empty() {
@@ -74,20 +74,25 @@ impl Tracer {
     }
 
     fn process_syscall_exit(&mut self, pid: Pid, syscall: u64, args: &[u64; 6], ret: i64) {
-        let name = syscalls::name(syscall);
-        match name {
-            "openat" | "open" | "openat2" | "socket" | "pipe" | "pipe2" | "dup" | "dup2"
-            | "dup3" | "fcntl" | "close" | "accept" | "accept4" | "connect" => {
-                self.handle_fd_syscall(pid, name, args, ret);
-            }
-            "brk" | "mmap" | "munmap" => {
-                self.handle_memory_syscall(pid, name, args, ret);
-            }
-            "read" | "pread64" | "readv" | "preadv" | "write" | "pwrite64" | "writev"
-            | "pwritev" | "sendto" | "sendmsg" | "send" | "recvfrom" | "recvmsg" | "recv"
-            | "copy_file_range" | "sendfile" => {
-                self.handle_io_syscall(pid, name, args, ret);
-            }
+        let sys = syscall as i64;
+        match sys {
+            libc::SYS_openat | libc::SYS_open | libc::SYS_openat2
+            | libc::SYS_socket | libc::SYS_pipe | libc::SYS_pipe2
+            | libc::SYS_dup | libc::SYS_dup2 | libc::SYS_dup3
+            | libc::SYS_fcntl | libc::SYS_close
+            | libc::SYS_accept | libc::SYS_accept4
+            | libc::SYS_connect => self.handle_fd_syscall(pid, sys, args, ret),
+
+            libc::SYS_brk | libc::SYS_mmap | libc::SYS_munmap
+                => self.handle_memory_syscall(pid, sys, args, ret),
+
+            libc::SYS_read | libc::SYS_pread64 | libc::SYS_readv | libc::SYS_preadv
+            | libc::SYS_write | libc::SYS_pwrite64 | libc::SYS_writev | libc::SYS_pwritev
+            | libc::SYS_sendto | libc::SYS_recvfrom
+            | libc::SYS_sendmsg | libc::SYS_recvmsg
+            | libc::SYS_copy_file_range | libc::SYS_sendfile
+                => self.handle_io_syscall(pid, sys, args, ret),
+
             _ => {}
         }
     }

@@ -41,9 +41,9 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
         connections: tracer.summary.connections.clone(),
         subprocesses: tracer.summary.subprocesses.clone(),
         exit_status,
-        page_faults: tracer.page_faults,
-        page_fault_bytes: tracer.page_faults * tracer.page_size,
-        perf_enabled: tracer.perf_enabled,
+        page_faults: tracer.perf.page_faults,
+        page_fault_bytes: tracer.perf.page_faults * tracer.perf.page_size,
+        perf_enabled: tracer.perf.enabled,
         truncated: None,
         original_event_count: None,
     }
@@ -72,7 +72,7 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     if summary.perf_enabled {
         tracer.output(" Page faults (heap/anon):");
         tracer.output(&format!("   Count:     {}", summary.page_faults));
-        tracer.output(&format!("   Page size: {} B", tracer.page_size));
+        tracer.output(&format!("   Page size: {} B", tracer.perf.page_size));
         tracer.output(&format!(
             "   Total:     {}",
             format_bytes(summary.page_fault_bytes)

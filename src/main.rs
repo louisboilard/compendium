@@ -23,7 +23,7 @@ mod types;
 
 use events::{EventKind, TraceEvent};
 use perf::PerfPageFaultTracker;
-use types::{Config, FdTable, IoStats, MemoryStats, ProcessBrk, ProcessState, Summary};
+use types::{Config, FdTable, IoStats, MemoryStats, PerfState, ProcessBrk, ProcessState, Summary};
 
 #[derive(Parser, Debug)]
 #[command(name = "compendium")]
@@ -74,9 +74,7 @@ pub(crate) struct Tracer {
     pub(crate) summary: Summary,
     pub(crate) initial_pid: Option<Pid>,
     pub(crate) start_time: Instant,
-    pub(crate) page_faults: u64,
-    pub(crate) page_size: u64,
-    pub(crate) perf_enabled: bool,
+    pub(crate) perf: PerfState,
     pub(crate) output_file: Option<File>,
     pub(crate) events: Vec<TraceEvent>,
     pub(crate) total_heap_bytes: u64,
@@ -109,9 +107,11 @@ impl Tracer {
             summary: Summary::default(),
             initial_pid: None,
             start_time: Instant::now(),
-            page_faults: 0,
-            page_size,
-            perf_enabled: false,
+            perf: PerfState {
+                enabled: false,
+                page_faults: 0,
+                page_size,
+            },
             output_file,
             events: Vec::new(),
             total_heap_bytes: 0,
@@ -191,7 +191,7 @@ impl Tracer {
         let mut perf_tracker = if track_faults {
             match PerfPageFaultTracker::new(initial_pid) {
                 Ok(tracker) => {
-                    self.perf_enabled = true;
+                    self.perf.enabled = true;
                     Some(tracker)
                 }
                 Err(e) => {

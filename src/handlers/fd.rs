@@ -33,9 +33,9 @@ impl Tracer {
         }
     }
 
-    pub(super) fn handle_fd_syscall(&mut self, pid: Pid, name: &str, args: &[u64; 6], ret: i64) {
-        match name {
-            "openat" if ret >= 0 => {
+    pub(super) fn handle_fd_syscall(&mut self, pid: Pid, sys: i64, args: &[u64; 6], ret: i64) {
+        match sys {
+            libc::SYS_openat if ret >= 0 => {
                 let fd = ret as u64;
                 if let Ok(path) = memory::read_string(pid, args[1] as usize) {
                     let flags = args[2] as i32;
@@ -44,7 +44,7 @@ impl Tracer {
                 }
             }
 
-            "open" if ret >= 0 => {
+            libc::SYS_open if ret >= 0 => {
                 let fd = ret as u64;
                 if let Ok(path) = memory::read_string(pid, args[0] as usize) {
                     let flags = args[1] as i32;
@@ -53,7 +53,7 @@ impl Tracer {
                 }
             }
 
-            "openat2" if ret >= 0 => {
+            libc::SYS_openat2 if ret >= 0 => {
                 let fd = ret as u64;
                 if let Ok(path) = memory::read_string(pid, args[1] as usize) {
                     // Read open_how struct to get flags (u64 at offset 0)
@@ -68,7 +68,7 @@ impl Tracer {
                 }
             }
 
-            "socket" if ret >= 0 => {
+            libc::SYS_socket if ret >= 0 => {
                 let fd = ret as u64;
                 let domain = args[0] as i32;
                 let sock_type = args[1] as i32;
@@ -87,7 +87,7 @@ impl Tracer {
                 }
             }
 
-            "pipe" | "pipe2" if ret >= 0 => {
+            libc::SYS_pipe | libc::SYS_pipe2 if ret >= 0 => {
                 // pipe() writes two fds to the int[2] array pointed to by args[0]
                 let fds_ptr = args[0] as usize;
                 if let Ok(buf) = memory::read_buffer(pid, fds_ptr, 8)
@@ -102,7 +102,7 @@ impl Tracer {
                 }
             }
 
-            "dup" if ret >= 0 => {
+            libc::SYS_dup if ret >= 0 => {
                 let old_fd = args[0];
                 let new_fd = ret as u64;
                 if let Some(proc) = self.processes.get_mut(&pid) {
@@ -110,7 +110,7 @@ impl Tracer {
                 }
             }
 
-            "dup2" | "dup3" if ret >= 0 => {
+            libc::SYS_dup2 | libc::SYS_dup3 if ret >= 0 => {
                 let old_fd = args[0];
                 let new_fd = args[1];
                 if let Some(proc) = self.processes.get_mut(&pid) {
@@ -118,7 +118,7 @@ impl Tracer {
                 }
             }
 
-            "fcntl" if ret >= 0 => {
+            libc::SYS_fcntl if ret >= 0 => {
                 let fd = args[0];
                 let cmd = args[1] as i32;
                 let new_fd = ret as u64;
@@ -130,14 +130,14 @@ impl Tracer {
                 }
             }
 
-            "close" if ret >= 0 => {
+            libc::SYS_close if ret >= 0 => {
                 let fd = args[0];
                 if let Some(proc) = self.processes.get_mut(&pid) {
                     proc.fd_table.remove(fd);
                 }
             }
 
-            "accept" | "accept4" if ret >= 0 => {
+            libc::SYS_accept | libc::SYS_accept4 if ret >= 0 => {
                 let new_fd = ret as u64;
                 let listening_fd = args[0];
                 let sock_type =
@@ -154,7 +154,7 @@ impl Tracer {
                 }
             }
 
-            "connect" if ret >= 0 || ret == -(libc::EINPROGRESS as i64) => {
+            libc::SYS_connect if ret >= 0 || ret == -(libc::EINPROGRESS as i64) => {
                 let fd = args[0];
                 let addr_ptr = args[1] as usize;
                 let addr_len = args[2] as usize;
