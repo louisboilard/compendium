@@ -108,4 +108,3 @@ pub fn read_sockaddr(pid: Pid, addr: usize, len: usize) -> Result<String> {
         _ => Ok(format!("AF_{}(???)", family)),
     }
 }
-

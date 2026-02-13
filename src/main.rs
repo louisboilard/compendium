@@ -135,9 +135,7 @@ impl Tracer {
     /// `max_report_events`, preventing unbounded memory growth.
     pub(crate) fn record_event(&mut self, pid: Pid, kind: EventKind) {
         self.event_count += 1;
-        if self.config.report_path.is_some()
-            && self.events.len() < self.config.max_report_events
-        {
+        if self.config.report_path.is_some() && self.events.len() < self.config.max_report_events {
             self.events.push(TraceEvent {
                 timestamp_secs: self.start_time.elapsed().as_secs_f64(),
                 pid: pid.as_raw(),

@@ -2,9 +2,9 @@
 
 use nix::unistd::Pid;
 
+use crate::Tracer;
 use crate::events::EventKind;
 use crate::perf::PerfPageFaultTracker;
-use crate::Tracer;
 
 impl Tracer {
     /// Drain pending page fault events from perf, group consecutive faults in

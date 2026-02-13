@@ -2,9 +2,9 @@
 
 use nix::unistd::Pid;
 
+use crate::Tracer;
 use crate::events::{EventKind, IoTarget};
 use crate::types::*;
-use crate::Tracer;
 
 impl Tracer {
     /// Handle a generic read or write I/O syscall on a file descriptor.
@@ -77,9 +77,7 @@ impl Tracer {
     /// Handle I/O syscalls on exit, dispatching by syscall number.
     pub(super) fn handle_io_syscall(&mut self, pid: Pid, sys: i64, args: &[u64; 6], ret: i64) {
         match sys {
-            libc::SYS_read | libc::SYS_pread64 | libc::SYS_readv | libc::SYS_preadv
-                if ret > 0 =>
-            {
+            libc::SYS_read | libc::SYS_pread64 | libc::SYS_readv | libc::SYS_preadv if ret > 0 => {
                 self.handle_fd_io(pid, args[0], ret as u64, true);
             }
 

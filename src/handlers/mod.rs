@@ -20,7 +20,7 @@ use nix::sys::ptrace;
 use nix::unistd::Pid;
 
 use crate::types::*;
-use crate::{memory, syscalls, Tracer};
+use crate::{Tracer, memory, syscalls};
 
 impl Tracer {
     /// Handle a single ptrace syscall-stop (entry or exit).
@@ -93,22 +93,39 @@ impl Tracer {
     fn process_syscall_exit(&mut self, pid: Pid, syscall: u64, args: &[u64; 6], ret: i64) {
         let sys = syscall as i64;
         match sys {
-            libc::SYS_openat | libc::SYS_open | libc::SYS_openat2
-            | libc::SYS_socket | libc::SYS_pipe | libc::SYS_pipe2
-            | libc::SYS_dup | libc::SYS_dup2 | libc::SYS_dup3
-            | libc::SYS_fcntl | libc::SYS_close
-            | libc::SYS_accept | libc::SYS_accept4
+            libc::SYS_openat
+            | libc::SYS_open
+            | libc::SYS_openat2
+            | libc::SYS_socket
+            | libc::SYS_pipe
+            | libc::SYS_pipe2
+            | libc::SYS_dup
+            | libc::SYS_dup2
+            | libc::SYS_dup3
+            | libc::SYS_fcntl
+            | libc::SYS_close
+            | libc::SYS_accept
+            | libc::SYS_accept4
             | libc::SYS_connect => self.handle_fd_syscall(pid, sys, args, ret),
 
-            libc::SYS_brk | libc::SYS_mmap | libc::SYS_munmap
-                => self.handle_memory_syscall(pid, sys, args, ret),
+            libc::SYS_brk | libc::SYS_mmap | libc::SYS_munmap => {
+                self.handle_memory_syscall(pid, sys, args, ret)
+            }
 
-            libc::SYS_read | libc::SYS_pread64 | libc::SYS_readv | libc::SYS_preadv
-            | libc::SYS_write | libc::SYS_pwrite64 | libc::SYS_writev | libc::SYS_pwritev
-            | libc::SYS_sendto | libc::SYS_recvfrom
-            | libc::SYS_sendmsg | libc::SYS_recvmsg
-            | libc::SYS_copy_file_range | libc::SYS_sendfile
-                => self.handle_io_syscall(pid, sys, args, ret),
+            libc::SYS_read
+            | libc::SYS_pread64
+            | libc::SYS_readv
+            | libc::SYS_preadv
+            | libc::SYS_write
+            | libc::SYS_pwrite64
+            | libc::SYS_writev
+            | libc::SYS_pwritev
+            | libc::SYS_sendto
+            | libc::SYS_recvfrom
+            | libc::SYS_sendmsg
+            | libc::SYS_recvmsg
+            | libc::SYS_copy_file_range
+            | libc::SYS_sendfile => self.handle_io_syscall(pid, sys, args, ret),
 
             _ => {}
         }

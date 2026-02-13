@@ -5,7 +5,7 @@ use nix::unistd::Pid;
 use super::utils::should_ignore_path;
 use crate::events::EventKind;
 use crate::types::*;
-use crate::{memory, Tracer};
+use crate::{Tracer, memory};
 
 impl Tracer {
     /// Process a successful file open: update the fd table, emit an event,

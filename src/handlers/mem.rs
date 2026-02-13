@@ -2,9 +2,9 @@
 
 use nix::unistd::Pid;
 
+use crate::Tracer;
 use crate::events::EventKind;
 use crate::types::*;
-use crate::Tracer;
 
 impl Tracer {
     /// Handle memory-related syscalls on exit.
