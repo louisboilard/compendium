@@ -1,4 +1,4 @@
-# compendium
+# Compendium
 
 [![Test](https://github.com/louisboilard/compendium/actions/workflows/test.yml/badge.svg)](https://github.com/louisboilard/compendium/actions/workflows/test.yml)
 [![Lint](https://github.com/louisboilard/compendium/actions/workflows/lint.yml/badge.svg)](https://github.com/louisboilard/compendium/actions/workflows/lint.yml)
