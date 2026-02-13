@@ -1,5 +1,8 @@
 # compendium
 
+[![Test](https://github.com/louisboilard/compendium/actions/workflows/test.yml/badge.svg)](https://github.com/louisboilard/compendium/actions/workflows/test.yml)
+[![Lint](https://github.com/louisboilard/compendium/actions/workflows/lint.yml/badge.svg)](https://github.com/louisboilard/compendium/actions/workflows/lint.yml)
+
 A user-friendly strace like tracer for x86 Linux with HTML reports.
 See's syscalls and display files opened, network connections, memory allocations
 and more!
