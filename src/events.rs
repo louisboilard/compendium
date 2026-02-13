@@ -1,5 +1,11 @@
+//! Event types emitted during tracing and serialized into the HTML report.
+//!
+//! Each syscall handler produces an [`EventKind`] variant which is wrapped in a
+//! [`TraceEvent`] (adding a timestamp and pid) by [`Tracer::record_event`](crate::Tracer::record_event).
+
 use serde::Serialize;
 
+/// A single timestamped event from the trace.
 #[derive(Clone, Debug, Serialize)]
 pub struct TraceEvent {
     pub timestamp_secs: f64,
@@ -7,6 +13,10 @@ pub struct TraceEvent {
     pub kind: EventKind,
 }
 
+/// The payload of a trace event, tagged by syscall category.
+///
+/// Serialized as JSON with `serde(tag = "type")` so the report JS can
+/// switch on `event.type` directly.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventKind {
@@ -94,99 +104,9 @@ pub enum EventKind {
     },
 }
 
+/// Whether an I/O event targeted a file or something else.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub enum IoTarget {
     File,
-    Socket,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
-pub enum EventCategory {
-    File,
-    Network,
-    Memory,
-    Io,
-    Process,
-}
-
-impl EventKind {
-    #[allow(dead_code)]
-    pub fn category(&self) -> EventCategory {
-        match self {
-            EventKind::Open { .. } => EventCategory::File,
-            EventKind::Connect { .. } => EventCategory::Network,
-            EventKind::Brk { .. } => EventCategory::Memory,
-            EventKind::Mmap { .. } => EventCategory::Memory,
-            EventKind::Read { .. } => EventCategory::Io,
-            EventKind::Write { .. } => EventCategory::Io,
-            EventKind::Send { .. } => EventCategory::Network,
-            EventKind::Recv { .. } => EventCategory::Network,
-            EventKind::CopyFileRange { .. } => EventCategory::Io,
-            EventKind::Sendfile { .. } => EventCategory::Io,
-            EventKind::SpawnProcess { .. } => EventCategory::Process,
-            EventKind::SpawnThread { .. } => EventCategory::Process,
-            EventKind::Exec { .. } => EventCategory::Process,
-            EventKind::ExitThread { .. } => EventCategory::Process,
-            EventKind::Fault { .. } => EventCategory::Memory,
-            EventKind::FaultGroup { .. } => EventCategory::Memory,
-            EventKind::Truncated { .. } => EventCategory::Process,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn category_mapping() {
-        assert_eq!(
-            EventKind::Open {
-                path: String::new(),
-                writable: false
-            }
-            .category(),
-            EventCategory::File
-        );
-        assert_eq!(
-            EventKind::Send {
-                bytes: 0,
-                count: None
-            }
-            .category(),
-            EventCategory::Network
-        );
-        assert_eq!(
-            EventKind::Mmap {
-                addr: String::new(),
-                end_addr: String::new(),
-                size: 0,
-                prot: String::new(),
-                map_type: String::new(),
-            }
-            .category(),
-            EventCategory::Memory
-        );
-        assert_eq!(
-            EventKind::Read {
-                bytes: 0,
-                filename: String::new(),
-                target: IoTarget::File,
-                count: None,
-            }
-            .category(),
-            EventCategory::Io
-        );
-        assert_eq!(
-            EventKind::Exec {
-                program: String::new()
-            }
-            .category(),
-            EventCategory::Process
-        );
-    }
 }

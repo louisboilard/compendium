@@ -1,9 +1,16 @@
+//! Post-run summary output and report orchestration.
+//!
+//! After the event loop exits, [`print_final_summary`] prints the final stats
+//! to stderr (and the output file) and, when `--report` was given, delegates
+//! to [`report::generate`] to write the HTML report.
+
 use std::collections::HashSet;
 
 use crate::events::{EventKind, TraceEvent};
 use crate::types::format_bytes;
 use crate::{Tracer, report};
 
+/// Build a [`ReportSummary`](report::ReportSummary) from the current tracer state.
 fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
     let elapsed = tracer.start_time.elapsed().as_secs_f64();
     let total_heap: u64 = tracer.total_heap_bytes
@@ -24,10 +31,10 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
     };
 
     report::ReportSummary {
-        command: tracer.cmd_display.clone(),
+        command: tracer.config.cmd_display.clone(),
         duration_secs: elapsed,
         duration_display: format!("{:.2}s", elapsed),
-        event_count: tracer.events.len(),
+        event_count: tracer.event_count,
         heap_bytes: total_heap,
         mmap_bytes: mmap_total,
         mmap_regions,
@@ -41,14 +48,15 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
         connections: tracer.summary.connections.clone(),
         subprocesses: tracer.summary.subprocesses.clone(),
         exit_status,
-        page_faults: tracer.page_faults,
-        page_fault_bytes: tracer.page_faults * tracer.page_size,
-        perf_enabled: tracer.perf_enabled,
+        page_faults: tracer.perf.page_faults,
+        page_fault_bytes: tracer.perf.page_faults * tracer.perf.page_size,
+        perf_enabled: tracer.perf.enabled,
         truncated: None,
         original_event_count: None,
     }
 }
 
+/// Print the final summary to stderr and optionally generate the HTML report.
 pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     let summary = compute_summary(tracer);
 
@@ -72,7 +80,7 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     if summary.perf_enabled {
         tracer.output(" Page faults (heap/anon):");
         tracer.output(&format!("   Count:     {}", summary.page_faults));
-        tracer.output(&format!("   Page size: {} B", tracer.page_size));
+        tracer.output(&format!("   Page size: {} B", tracer.perf.page_size));
         tracer.output(&format!(
             "   Total:     {}",
             format_bytes(summary.page_fault_bytes)
@@ -128,10 +136,10 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     tracer.output("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Generate HTML report if requested
-    if let Some(ref report_path) = tracer.report_path {
-        let original_count = tracer.events.len();
+    if let Some(ref report_path) = tracer.config.report_path {
+        let original_count = tracer.event_count;
         let coalesced = report::coalesce_events(&tracer.events);
-        let max = tracer.max_report_events;
+        let max = tracer.config.max_report_events;
 
         let (report_events, report_summary) = if coalesced.len() > max {
             let mut capped: Vec<TraceEvent> = coalesced.into_iter().take(max).collect();

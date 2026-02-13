@@ -1,3 +1,9 @@
+//! Compendium: a user-friendly strace for x86 Linux with HTML reports.
+//!
+//! Traces syscalls via ptrace and optionally tracks page faults via perf_event.
+//! Produces a human-readable summary on stderr and, when `--report` is given,
+//! a self-contained HTML timeline.
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use nix::sys::ptrace;
@@ -23,7 +29,7 @@ mod types;
 
 use events::{EventKind, TraceEvent};
 use perf::PerfPageFaultTracker;
-use types::*;
+use types::{Config, FdTable, IoStats, MemoryStats, PerfState, ProcessBrk, ProcessState, Summary};
 
 #[derive(Parser, Debug)]
 #[command(name = "compendium")]
@@ -62,26 +68,23 @@ struct Args {
     max_report_events: usize,
 }
 
-// ============================================================================
-// Tracer
-// ============================================================================
-
+/// Central tracing state machine.
+///
+/// Holds per-process state, aggregated I/O and memory stats, the event log
+/// (when `--report` is enabled), and the output sink. Methods on `Tracer` are
+/// spread across `handlers/`, `ptrace_ops`, and `summary`.
 pub(crate) struct Tracer {
+    pub(crate) config: Config,
     pub(crate) processes: HashMap<Pid, ProcessState>,
     pub(crate) memory: HashMap<Pid, MemoryStats>,
     pub(crate) io: IoStats,
     pub(crate) summary: Summary,
-    pub(crate) verbose: bool,
     pub(crate) initial_pid: Option<Pid>,
     pub(crate) start_time: Instant,
-    pub(crate) cmd_display: String,
-    pub(crate) page_faults: u64,
-    pub(crate) page_size: u64,
-    pub(crate) perf_enabled: bool,
+    pub(crate) perf: PerfState,
     pub(crate) output_file: Option<File>,
     pub(crate) events: Vec<TraceEvent>,
-    pub(crate) report_path: Option<String>,
-    pub(crate) max_report_events: usize,
+    pub(crate) event_count: usize,
     pub(crate) total_heap_bytes: u64,
     pub(crate) interrupt_count: u8,
 }
@@ -100,32 +103,45 @@ impl Tracer {
             None => None,
         };
         Ok(Tracer {
+            config: Config {
+                verbose,
+                max_report_events,
+                report_path,
+                cmd_display,
+            },
             processes: HashMap::new(),
             memory: HashMap::new(),
             io: IoStats::default(),
             summary: Summary::default(),
-            verbose,
             initial_pid: None,
             start_time: Instant::now(),
-            cmd_display,
-            page_faults: 0,
-            page_size,
-            perf_enabled: false,
+            perf: PerfState {
+                enabled: false,
+                page_faults: 0,
+                page_size,
+            },
             output_file,
             events: Vec::new(),
-            report_path,
-            max_report_events,
+            event_count: 0,
             total_heap_bytes: 0,
             interrupt_count: 0,
         })
     }
 
+    /// Record a trace event for the HTML report.
+    ///
+    /// Always increments the total event counter. The event is only stored
+    /// when `--report` is active and the buffer has not yet reached
+    /// `max_report_events`, preventing unbounded memory growth.
     pub(crate) fn record_event(&mut self, pid: Pid, kind: EventKind) {
-        self.events.push(TraceEvent {
-            timestamp_secs: self.start_time.elapsed().as_secs_f64(),
-            pid: pid.as_raw(),
-            kind,
-        });
+        self.event_count += 1;
+        if self.config.report_path.is_some() && self.events.len() < self.config.max_report_events {
+            self.events.push(TraceEvent {
+                timestamp_secs: self.start_time.elapsed().as_secs_f64(),
+                pid: pid.as_raw(),
+                kind,
+            });
+        }
     }
 
     /// Output a line to stderr and optionally to the output file
@@ -136,6 +152,17 @@ impl Tracer {
         }
     }
 
+    /// Format the event prefix: `[+0.001s]` or `[+0.001s] [PID]` if multiple tasks.
+    pub(crate) fn event_prefix(&self, pid: Pid) -> String {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        if self.processes.len() > 1 {
+            format!("[+{:.3}s] [{}]", elapsed, pid)
+        } else {
+            format!("[+{:.3}s]", elapsed)
+        }
+    }
+
+    /// Register a new process/thread for tracking.
     pub(crate) fn add_process(&mut self, pid: Pid) {
         self.processes.insert(
             pid,
@@ -160,21 +187,6 @@ impl Tracer {
         self.memory.entry(leader).or_default()
     }
 
-    /// Returns true if we're tracing multiple tasks (processes or threads)
-    fn has_multiple_tasks(&self) -> bool {
-        self.processes.len() > 1
-    }
-
-    /// Format the event prefix: "[+0.001s]" or "[+0.001s] [1234]" if multiple tasks
-    pub(crate) fn event_prefix(&self, pid: Pid) -> String {
-        let elapsed = self.start_time.elapsed().as_secs_f64();
-        if self.has_multiple_tasks() {
-            format!("[+{:.3}s] [{}]", elapsed, pid)
-        } else {
-            format!("[+{:.3}s]", elapsed)
-        }
-    }
-
     fn run(&mut self, initial_pid: Pid, track_faults: bool, attached: bool) -> Result<()> {
         self.initial_pid = Some(initial_pid);
         self.start_time = Instant::now();
@@ -197,7 +209,7 @@ impl Tracer {
         let mut perf_tracker = if track_faults {
             match PerfPageFaultTracker::new(initial_pid) {
                 Ok(tracker) => {
-                    self.perf_enabled = true;
+                    self.perf.enabled = true;
                     Some(tracker)
                 }
                 Err(e) => {
