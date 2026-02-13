@@ -2,7 +2,8 @@
 
 [![Test](https://github.com/louisboilard/compendium/actions/workflows/test.yml/badge.svg)](https://github.com/louisboilard/compendium/actions/workflows/test.yml)
 [![Lint](https://github.com/louisboilard/compendium/actions/workflows/lint.yml/badge.svg)](https://github.com/louisboilard/compendium/actions/workflows/lint.yml)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/compendium)](https://crates.io/crates/compendium)
+[![License](https://img.shields.io/crates/l/compendium)](LICENSE)
 
 A user-friendly strace like tracer for x86 Linux with HTML reports.
 See's syscalls and display files opened, network connections, memory allocations
