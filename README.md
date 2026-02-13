@@ -24,7 +24,11 @@ and more!
 ## Installation
 
 ```bash
-cargo build --release
+# From crates.io
+cargo install compendium
+
+# From source
+cargo install --path .
 ```
 
 ## Usage
@@ -38,7 +42,7 @@ compendium -- cp /etc/hosts /tmp/hosts-copy
 
 Attach to a running process:
 ```bash
-./target/release/compendium --pid 1234
+compendium --pid 1234
 ```
 
 Enable page fault tracking (requires elevated permissions):
