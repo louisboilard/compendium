@@ -1,3 +1,5 @@
+//! Memory syscall handlers: brk, mmap, munmap.
+
 use nix::unistd::Pid;
 
 use crate::events::EventKind;
@@ -5,6 +7,7 @@ use crate::types::*;
 use crate::Tracer;
 
 impl Tracer {
+    /// Handle memory-related syscalls on exit.
     pub(super) fn handle_memory_syscall(&mut self, pid: Pid, sys: i64, args: &[u64; 6], ret: i64) {
         match sys {
             libc::SYS_brk => {

@@ -1,3 +1,5 @@
+//! Page fault processing: read perf events, group by region, emit trace events.
+
 use nix::unistd::Pid;
 
 use crate::events::EventKind;
@@ -5,6 +7,11 @@ use crate::perf::PerfPageFaultTracker;
 use crate::Tracer;
 
 impl Tracer {
+    /// Drain pending page fault events from perf, group consecutive faults in
+    /// the same memory region, and emit grouped trace events.
+    ///
+    /// Only heap and anonymous mmap faults are tracked; file-backed faults
+    /// (e.g. shared libraries) are ignored.
     pub(crate) fn process_page_faults(&mut self, perf: &mut PerfPageFaultTracker) {
         let events = perf.read_events();
         if events.is_empty() {

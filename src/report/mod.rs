@@ -1,3 +1,12 @@
+//! Self-contained HTML report generation.
+//!
+//! Produces a single `.html` file that embeds all CSS and JS inline (via
+//! `include_str!`). The report includes an interactive timeline, a virtual-
+//! scrolled event table, and summary cards.
+//!
+//! The [`coalesce_events`] pass merges consecutive same-pid same-target I/O
+//! events before they reach the report, keeping the JSON payload small.
+
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
@@ -5,6 +14,7 @@ use std::path::Path;
 
 use crate::events::{EventKind, TraceEvent};
 
+/// Summary data serialized into the HTML report as `window.TRACE_SUMMARY`.
 #[derive(Clone, Serialize)]
 pub struct ReportSummary {
     pub command: String,
@@ -117,6 +127,10 @@ pub fn coalesce_events(events: &[TraceEvent]) -> Vec<TraceEvent> {
     out
 }
 
+/// Write the self-contained HTML report to `path`.
+///
+/// Events are serialized as JSON into `window.TRACE_EVENTS` and the summary
+/// into `window.TRACE_SUMMARY`. CSS and JS are embedded inline.
 pub fn generate(events: &[TraceEvent], summary: &ReportSummary, path: &str) -> Result<()> {
     let events_json = serde_json::to_string(events).context("Failed to serialize events")?;
     let summary_json = serde_json::to_string(summary).context("Failed to serialize summary")?;
@@ -179,6 +193,7 @@ window.TRACE_SUMMARY = {summary_json};
     Ok(())
 }
 
+/// Escape `&`, `<`, `>`, and `"` for safe embedding in HTML.
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")

@@ -1,3 +1,5 @@
+//! I/O syscall handlers: read, write, send, recv, sendfile, copy_file_range.
+
 use nix::unistd::Pid;
 
 use crate::events::{EventKind, IoTarget};
@@ -72,6 +74,7 @@ impl Tracer {
         }
     }
 
+    /// Handle I/O syscalls on exit, dispatching by syscall number.
     pub(super) fn handle_io_syscall(&mut self, pid: Pid, sys: i64, args: &[u64; 6], ret: i64) {
         match sys {
             libc::SYS_read | libc::SYS_pread64 | libc::SYS_readv | libc::SYS_preadv

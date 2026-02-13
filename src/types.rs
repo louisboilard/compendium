@@ -1,9 +1,15 @@
+//! Shared data types used across the tracer.
+//!
+//! Contains the per-process state types ([`ProcessState`], [`FdTable`], [`ProcessBrk`]),
+//! aggregated statistics ([`MemoryStats`], [`IoStats`], [`Summary`]), configuration
+//! ([`Config`], [`PerfState`]), and formatting helpers.
+
 use std::collections::{HashMap, HashSet};
 
 use nix::sys::signal::Signal;
 use nix::unistd::Pid;
 
-/// Immutable configuration for the tracer
+/// Immutable configuration for the tracer, set once at startup.
 pub struct Config {
     pub verbose: bool,
     pub max_report_events: usize,
@@ -11,6 +17,7 @@ pub struct Config {
     pub cmd_display: String,
 }
 
+/// What kind of file descriptor this is, as seen by the tracer.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub(crate) enum FdKind {
@@ -26,6 +33,10 @@ pub(crate) enum FdKind {
     Other,
 }
 
+/// Per-process file descriptor table, mapping fd numbers to their [`FdKind`].
+///
+/// Mirrors the kernel's fd table for a traced process so the tracer can
+/// distinguish file I/O from network I/O without additional syscalls.
 #[derive(Clone, Default)]
 pub(crate) struct FdTable {
     fds: HashMap<u64, FdKind>,
@@ -91,6 +102,7 @@ impl FdTable {
     }
 }
 
+/// A single mmap'd region tracked by the tracer.
 #[derive(Clone)]
 pub(crate) struct MmapRegion {
     pub(crate) size: u64,
@@ -98,6 +110,10 @@ pub(crate) struct MmapRegion {
     pub(crate) prot: String,
 }
 
+/// Tracks mmap regions for a single address space (identified by leader pid).
+///
+/// Used to attribute page faults to named regions and to report total
+/// mapped memory in the final summary.
 #[derive(Default)]
 pub(crate) struct MemoryStats {
     pub(crate) mmap_regions: HashMap<u64, MmapRegion>,
@@ -134,6 +150,7 @@ impl MemoryStats {
     }
 }
 
+/// Aggregated I/O byte counters across all processes.
 #[derive(Default)]
 pub(crate) struct IoStats {
     pub(crate) file_bytes_read: u64,
@@ -142,6 +159,7 @@ pub(crate) struct IoStats {
     pub(crate) net_bytes_received: u64,
 }
 
+/// High-level facts collected during tracing for the final summary.
 #[derive(Default)]
 pub(crate) struct Summary {
     pub(crate) files_read: HashSet<String>,
@@ -152,6 +170,11 @@ pub(crate) struct Summary {
     pub(crate) exit_signal: Option<Signal>,
 }
 
+/// Tracks the brk (heap) for a single process.
+///
+/// The first successful `brk` sets [`initial_brk`](Self::initial_brk);
+/// subsequent calls record growth. Reset on `execve` because the address
+/// space is replaced.
 #[derive(Default)]
 pub(crate) struct ProcessBrk {
     pub(crate) initial_brk: Option<u64>,
@@ -189,6 +212,7 @@ impl ProcessBrk {
     }
 }
 
+/// State for perf-based page fault tracking.
 #[derive(Default)]
 pub(crate) struct PerfState {
     pub(crate) enabled: bool,
@@ -196,6 +220,11 @@ pub(crate) struct PerfState {
     pub(crate) page_size: u64,
 }
 
+/// Per-process tracing state.
+///
+/// Tracks the syscall entry/exit toggle, the last syscall number and args
+/// (needed because ptrace reports entry and exit as separate stops), the
+/// fd table, and heap tracking.
 pub(crate) struct ProcessState {
     pub(crate) in_syscall: bool,
     pub(crate) last_syscall: Option<u64>,
@@ -205,6 +234,16 @@ pub(crate) struct ProcessState {
     pub(crate) leader_pid: Pid,
 }
 
+/// Format a byte count as a right-aligned 8-char human-readable string.
+///
+/// Uses KB/MB/GB suffixes with one decimal place. Values under 1 KB are
+/// shown as whole bytes.
+///
+/// ```text
+/// format_bytes(0)           => "     0 B"
+/// format_bytes(1024)        => "  1.0 KB"
+/// format_bytes(1_048_576)   => "  1.0 MB"
+/// ```
 pub(crate) fn format_bytes(bytes: u64) -> String {
     let s = if bytes >= 1_073_741_824 {
         format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)

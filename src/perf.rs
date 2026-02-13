@@ -1,19 +1,31 @@
+//! Page fault tracking via `perf_event_open(2)`.
+//!
+//! Uses the `perf-event` crate to sample `SOFTWARE/PAGE_FAULTS_MIN` events
+//! from the tracee. The sampler ring buffer is polled alongside the signalfd
+//! in the main event loop.
+
 use nix::unistd::Pid;
 use perf_event::events::Software;
 use perf_event::{Builder, SampleFlag, Sampler};
 use std::io;
 use std::os::unix::io::AsRawFd;
 
+/// A single minor page fault observed from the tracee.
 pub struct PageFaultEvent {
     pub tid: u32,
     pub addr: u64,
 }
 
+/// Samples minor page faults from a traced process via perf_event.
+///
+/// Created once at startup when `--faults` is given. The raw fd is
+/// registered with `poll(2)` so faults can be read without blocking.
 pub struct PerfPageFaultTracker {
     sampler: Sampler,
 }
 
 impl PerfPageFaultTracker {
+    /// Set up page fault sampling for the given pid (and all its threads).
     pub fn new(pid: Pid) -> io::Result<Self> {
         let counter = Builder::new(Software::PAGE_FAULTS_MIN)
             .observe_pid(pid.as_raw())
@@ -32,10 +44,12 @@ impl PerfPageFaultTracker {
         Ok(Self { sampler })
     }
 
+    /// Returns the file descriptor for use with `poll(2)`.
     pub fn raw_fd(&self) -> i32 {
         self.sampler.as_raw_fd()
     }
 
+    /// Drain all pending page fault records from the ring buffer.
     pub fn read_events(&mut self) -> Vec<PageFaultEvent> {
         let mut events = Vec::new();
 

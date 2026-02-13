@@ -1,3 +1,8 @@
+//! Read data from a tracee's address space via `ptrace(PEEKDATA)`.
+//!
+//! These functions are the only way to inspect tracee memory (strings, buffers,
+//! sockaddr structs) without `/proc/<pid>/mem`.
+
 use anyhow::{Context, Result};
 use nix::sys::ptrace;
 use nix::unistd::Pid;

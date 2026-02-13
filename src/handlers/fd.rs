@@ -1,3 +1,5 @@
+//! File descriptor lifecycle handlers: open, socket, pipe, dup, close, accept, connect.
+
 use nix::unistd::Pid;
 
 use super::utils::should_ignore_path;
@@ -6,6 +8,9 @@ use crate::types::*;
 use crate::{memory, Tracer};
 
 impl Tracer {
+    /// Process a successful file open: update the fd table, emit an event,
+    /// and record the path in the summary (unless it's a noise path like
+    /// `/proc` or a shared library).
     pub(super) fn handle_file_open(&mut self, pid: Pid, fd: u64, path: String, writable: bool) {
         if let Some(proc) = self.processes.get_mut(&pid) {
             proc.fd_table.add_file(fd, path.clone(), writable);
@@ -33,6 +38,7 @@ impl Tracer {
         }
     }
 
+    /// Handle file-descriptor-related syscalls on exit.
     pub(super) fn handle_fd_syscall(&mut self, pid: Pid, sys: i64, args: &[u64; 6], ret: i64) {
         match sys {
             libc::SYS_openat if ret >= 0 => {

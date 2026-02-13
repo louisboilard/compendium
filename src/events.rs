@@ -1,5 +1,11 @@
+//! Event types emitted during tracing and serialized into the HTML report.
+//!
+//! Each syscall handler produces an [`EventKind`] variant which is wrapped in a
+//! [`TraceEvent`] (adding a timestamp and pid) by [`Tracer::record_event`](crate::Tracer::record_event).
+
 use serde::Serialize;
 
+/// A single timestamped event from the trace.
 #[derive(Clone, Debug, Serialize)]
 pub struct TraceEvent {
     pub timestamp_secs: f64,
@@ -7,6 +13,10 @@ pub struct TraceEvent {
     pub kind: EventKind,
 }
 
+/// The payload of a trace event, tagged by syscall category.
+///
+/// Serialized as JSON with `serde(tag = "type")` so the report JS can
+/// switch on `event.type` directly.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventKind {
@@ -94,6 +104,7 @@ pub enum EventKind {
     },
 }
 
+/// Whether an I/O event targeted a file or something else.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IoTarget {

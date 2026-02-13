@@ -1,3 +1,10 @@
+//! Path filtering utilities for reducing noise in trace output.
+
+/// Returns `true` if this path should be suppressed from output.
+///
+/// Filters out `/proc`, `/sys`, `/dev`, the dynamic linker cache, and
+/// shared libraries in standard lib directories — these appear in every
+/// trace and are rarely interesting.
 pub(crate) fn should_ignore_path(path: &str) -> bool {
     path.starts_with("/proc/")
         || path.starts_with("/sys/")

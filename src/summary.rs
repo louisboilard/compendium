@@ -1,9 +1,16 @@
+//! Post-run summary output and report orchestration.
+//!
+//! After the event loop exits, [`print_final_summary`] prints the final stats
+//! to stderr (and the output file) and, when `--report` was given, delegates
+//! to [`report::generate`] to write the HTML report.
+
 use std::collections::HashSet;
 
 use crate::events::{EventKind, TraceEvent};
 use crate::types::format_bytes;
 use crate::{Tracer, report};
 
+/// Build a [`ReportSummary`](report::ReportSummary) from the current tracer state.
 fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
     let elapsed = tracer.start_time.elapsed().as_secs_f64();
     let total_heap: u64 = tracer.total_heap_bytes
@@ -49,6 +56,7 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
     }
 }
 
+/// Print the final summary to stderr and optionally generate the HTML report.
 pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     let summary = compute_summary(tracer);
 

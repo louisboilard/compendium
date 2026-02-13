@@ -1,3 +1,9 @@
+//! Compendium: a user-friendly strace for x86 Linux with HTML reports.
+//!
+//! Traces syscalls via ptrace and optionally tracks page faults via perf_event.
+//! Produces a human-readable summary on stderr and, when `--report` is given,
+//! a self-contained HTML timeline.
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use nix::sys::ptrace;
@@ -62,10 +68,11 @@ struct Args {
     max_report_events: usize,
 }
 
-// ============================================================================
-// Tracer
-// ============================================================================
-
+/// Central tracing state machine.
+///
+/// Holds per-process state, aggregated I/O and memory stats, the event log
+/// (when `--report` is enabled), and the output sink. Methods on `Tracer` are
+/// spread across `handlers/`, `ptrace_ops`, and `summary`.
 pub(crate) struct Tracer {
     pub(crate) config: Config,
     pub(crate) processes: HashMap<Pid, ProcessState>,
@@ -121,6 +128,11 @@ impl Tracer {
         })
     }
 
+    /// Record a trace event for the HTML report.
+    ///
+    /// Always increments the total event counter. The event is only stored
+    /// when `--report` is active and the buffer has not yet reached
+    /// `max_report_events`, preventing unbounded memory growth.
     pub(crate) fn record_event(&mut self, pid: Pid, kind: EventKind) {
         self.event_count += 1;
         if self.config.report_path.is_some()
@@ -142,7 +154,7 @@ impl Tracer {
         }
     }
 
-    /// Format the event prefix: "[+0.001s]" or "[+0.001s] [1234]" if multiple tasks
+    /// Format the event prefix: `[+0.001s]` or `[+0.001s] [PID]` if multiple tasks.
     pub(crate) fn event_prefix(&self, pid: Pid) -> String {
         let elapsed = self.start_time.elapsed().as_secs_f64();
         if self.processes.len() > 1 {
@@ -152,6 +164,7 @@ impl Tracer {
         }
     }
 
+    /// Register a new process/thread for tracking.
     pub(crate) fn add_process(&mut self, pid: Pid) {
         self.processes.insert(
             pid,

@@ -1,5 +1,11 @@
-/// x86_64 syscall number to name mapping
-/// Based on Linux kernel syscall table
+//! x86_64 syscall number to name mapping, based on the Linux kernel syscall table.
+//!
+//! Only used for human-readable verbose output (`--verbose`). Syscall dispatch
+//! in the handlers uses `libc::SYS_*` integer constants directly.
+
+/// Look up the name of a syscall by its x86_64 number.
+///
+/// Returns `"unknown"` for unrecognized numbers.
 pub fn name(num: u64) -> &'static str {
     match num {
         0 => "read",

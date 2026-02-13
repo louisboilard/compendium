@@ -1,3 +1,14 @@
+//! Syscall handlers: dispatch and per-category processing.
+//!
+//! The entry point is [`Tracer::handle_syscall`], called on every ptrace
+//! syscall-stop. It toggles the entry/exit state and, on exit, dispatches
+//! to category-specific sub-handlers via `libc::SYS_*` constants:
+//!
+//! - [`fd`] — file descriptor lifecycle (open, socket, pipe, dup, close, accept, connect)
+//! - [`io`] — data transfer (read, write, send, recv, sendfile, copy_file_range)
+//! - [`mem`] — address space changes (brk, mmap, munmap)
+//! - [`page_faults`] — perf-sampled page fault grouping
+
 mod fd;
 mod io;
 mod mem;
@@ -12,6 +23,11 @@ use crate::types::*;
 use crate::{memory, syscalls, Tracer};
 
 impl Tracer {
+    /// Handle a single ptrace syscall-stop (entry or exit).
+    ///
+    /// Ptrace reports entry and exit as separate SIGTRAP stops. We toggle
+    /// `in_syscall` on each call: on entry we save the syscall number and
+    /// args, on exit we dispatch to the appropriate sub-handler.
     pub(crate) fn handle_syscall(&mut self, pid: Pid) -> Result<()> {
         let regs = ptrace::getregs(pid).context("Failed to get registers")?;
         let in_syscall = self
@@ -73,6 +89,7 @@ impl Tracer {
         Ok(())
     }
 
+    /// Dispatch a completed syscall to the appropriate category handler.
     fn process_syscall_exit(&mut self, pid: Pid, syscall: u64, args: &[u64; 6], ret: i64) {
         let sys = syscall as i64;
         match sys {

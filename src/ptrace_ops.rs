@@ -1,3 +1,9 @@
+//! Ptrace lifecycle management: spawning, attaching, stop/event/exit handling.
+//!
+//! Contains the [`spawn_traced`] and [`attach_to_pid`] entry points plus
+//! the `Tracer` methods that respond to waitpid statuses (ptrace-stops,
+//! fork/clone/exec events, and process exits).
+
 use anyhow::{Context, Result};
 use nix::sys::ptrace;
 use nix::sys::signal::{Signal, kill};
@@ -10,6 +16,7 @@ use crate::events::EventKind;
 use crate::types::*;
 
 impl Tracer {
+    /// Detach from all traced processes (used on Ctrl-C when attached).
     pub(crate) fn detach_all(&mut self) {
         self.output("\ncompendium: detaching from process...");
         let pids: Vec<Pid> = self.processes.keys().cloned().collect();
@@ -27,6 +34,7 @@ impl Tracer {
         self.processes.clear();
     }
 
+    /// Send SIGKILL to all traced processes and reap them (double Ctrl-C).
     pub(crate) fn force_kill_all(&mut self) {
         self.output("\ncompendium: force killing all processes...");
         for proc in self.processes.values() {
@@ -224,6 +232,10 @@ impl Tracer {
     }
 }
 
+/// Fork and exec a command under ptrace.
+///
+/// The child calls `PTRACE_TRACEME` then `execvp`. The parent waits for
+/// the initial stop and returns the child's pid.
 pub(crate) fn spawn_traced(command: &str, args: &[String]) -> Result<Pid> {
     match unsafe { fork() }? {
         ForkResult::Parent { child } => {
@@ -247,6 +259,10 @@ pub(crate) fn spawn_traced(command: &str, args: &[String]) -> Result<Pid> {
     }
 }
 
+/// Attach to an already-running process via `PTRACE_ATTACH`.
+///
+/// Gives a clear error message when `EPERM` is returned (common due to
+/// `ptrace_scope` restrictions).
 pub(crate) fn attach_to_pid(pid: i32) -> Result<Pid> {
     let pid = Pid::from_raw(pid);
     if let Err(e) = ptrace::attach(pid) {
