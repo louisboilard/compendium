@@ -77,6 +77,7 @@ pub(crate) struct Tracer {
     pub(crate) perf: PerfState,
     pub(crate) output_file: Option<File>,
     pub(crate) events: Vec<TraceEvent>,
+    pub(crate) event_count: usize,
     pub(crate) total_heap_bytes: u64,
     pub(crate) interrupt_count: u8,
 }
@@ -114,17 +115,23 @@ impl Tracer {
             },
             output_file,
             events: Vec::new(),
+            event_count: 0,
             total_heap_bytes: 0,
             interrupt_count: 0,
         })
     }
 
     pub(crate) fn record_event(&mut self, pid: Pid, kind: EventKind) {
-        self.events.push(TraceEvent {
-            timestamp_secs: self.start_time.elapsed().as_secs_f64(),
-            pid: pid.as_raw(),
-            kind,
-        });
+        self.event_count += 1;
+        if self.config.report_path.is_some()
+            && self.events.len() < self.config.max_report_events
+        {
+            self.events.push(TraceEvent {
+                timestamp_secs: self.start_time.elapsed().as_secs_f64(),
+                pid: pid.as_raw(),
+                kind,
+            });
+        }
     }
 
     /// Output a line to stderr and optionally to the output file

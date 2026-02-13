@@ -27,7 +27,7 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
         command: tracer.config.cmd_display.clone(),
         duration_secs: elapsed,
         duration_display: format!("{:.2}s", elapsed),
-        event_count: tracer.events.len(),
+        event_count: tracer.event_count,
         heap_bytes: total_heap,
         mmap_bytes: mmap_total,
         mmap_regions,
@@ -129,7 +129,7 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
 
     // Generate HTML report if requested
     if let Some(ref report_path) = tracer.config.report_path {
-        let original_count = tracer.events.len();
+        let original_count = tracer.event_count;
         let coalesced = report::coalesce_events(&tracer.events);
         let max = tracer.config.max_report_events;
 
