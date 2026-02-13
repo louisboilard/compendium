@@ -3,6 +3,8 @@ name = "compendium"
 version = "0.1.0"
 edition = "2024"
 description = "A user-friendly strace for x86 Linux with HTML reports"
+license = "MIT"
+repository = "https://github.com/louisboilard/compendium"
 
 [dependencies]
 nix = { version = "0.31", features = ["ptrace", "signal", "process"] }
