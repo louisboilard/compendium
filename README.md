@@ -137,8 +137,6 @@ When attached to a running process (`--pid`):
 ## Requirements
 
 - Linux (x86_64)
-- Rust 2024 edition
-- For page fault tracking: root or `perf_event_paranoid <= 2`
 
 ## License
 
