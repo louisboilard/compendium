@@ -7,7 +7,7 @@
 
 A user-friendly strace like tracer for x86 Linux with HTML reports.
 See's syscalls and display files opened, network connections, memory allocations
-and more!
+and more! Optionally tracks scheduler latency and block I/O latency via eBPF.
 
 ![Compendium HTML Report](assets/compendium.png)
 
@@ -19,6 +19,8 @@ and more!
 - **I/O tracking**: Read/write operations with file names, copy_file_range, sendfile
 - **Process tracking**: Fork, clone, exec events with thread vs process differentiation
 - **Page fault tracking**: Optional detailed view of memory growth via perf_event_open
+- **Scheduler latency tracking**: eBPF-based wakeup-to-run delay measurement with `--ebpf`
+- **Block I/O latency tracking**: eBPF-based disk I/O latency and throughput with `--ebpf`
 - **HTML report**: Interactive timeline and event table with `--report`
 
 ## Installation
@@ -51,6 +53,17 @@ echo 0 | sudo tee /proc/sys/kernel/perf_event_paranoid
 sudo compendium --faults -- ls
 ```
 
+Enable eBPF tracking for scheduler latency and block I/O (requires CAP_BPF or root):
+```bash
+sudo compendium --ebpf -- dd if=/dev/zero of=/tmp/test bs=4K count=1000
+sudo compendium --ebpf -- curl -s https://example.com
+```
+
+Combine eBPF with page faults and an HTML report:
+```bash
+sudo compendium --ebpf --faults --report report.html -- your-program
+```
+
 Generate an interactive HTML report:
 ```bash
 compendium --report report.html -- curl -s https://example.com
@@ -62,7 +75,10 @@ compendium --report report.html -- curl -s https://example.com
 -p, --pid <PID>       Attach to existing PID instead of spawning
 -v, --verbose         Show raw syscalls as they happen
     --faults          Track page faults in heap/anon regions (requires sudo or perf)
+    --ebpf            Track scheduler latency and block I/O via eBPF (requires CAP_BPF or root)
+-o, --output <FILE>   Also write output to a file (in addition to stderr)
     --report <FILE>   Generate interactive HTML report
+    --max-report-events <N>  Maximum events in the HTML report (default: 75000)
 -h, --help            Print help
 ```
 
@@ -108,6 +124,12 @@ compendium uses Linux ptrace to intercept syscalls. For each syscall it:
 
 For page fault tracking, it uses perf_event_open to monitor minor page faults in heap and anonymous mmap regions, showing actual memory growth as pages are touched.
 
+For eBPF tracking (`--ebpf`), it loads a pre-compiled BPF object and attaches to four kernel tracepoints:
+- **sched_wakeup / sched_switch**: Measures the delay between a task being woken and actually getting scheduled on a CPU. Delays above 10us are reported.
+- **block_rq_issue / block_rq_complete**: Measures block I/O latency from request submission to completion, with byte counts. Consecutive same-size I/O events are grouped in non-verbose mode.
+
+Events from eBPF are delivered via a ring buffer and interleaved with ptrace events in the timeline. Only PIDs being traced are monitored (the BPF programs filter using a PID map that is updated on fork/clone/exit).
+
 ## HTML Report
 
 The `--report` flag generates a self-contained HTML file with:
@@ -137,6 +159,7 @@ When attached to a running process (`--pid`):
 ## Requirements
 
 - Linux (x86_64)
+- **eBPF tracking** (`--ebpf`): Requires `CAP_BPF` + `CAP_PERFMON` capabilities, or root. Kernel 5.8+ with BTF support.
 
 ## License
 
