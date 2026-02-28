@@ -17,6 +17,7 @@ use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::time::Instant;
 
+mod ebpf;
 mod events;
 mod handlers;
 mod memory;
@@ -29,7 +30,10 @@ mod types;
 
 use events::{EventKind, TraceEvent};
 use perf::PerfPageFaultTracker;
-use types::{Config, FdTable, IoStats, MemoryStats, PerfState, ProcessBrk, ProcessState, Summary};
+use types::{
+    Config, EbpfStats, FdTable, IoStats, MemoryStats, PendingBlockIoGroup, PerfState, ProcessBrk,
+    ProcessState, Summary, format_bytes, format_ns,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "compendium")]
@@ -54,6 +58,10 @@ struct Args {
     /// Track page faults in heap/anon regions (requires sudo + perf permissions)
     #[arg(long = "faults", visible_alias = "page-faults")]
     faults: bool,
+
+    /// Track scheduler latency and block I/O latency via eBPF (requires CAP_BPF or root)
+    #[arg(long = "ebpf")]
+    ebpf: bool,
 
     /// Also write output to file (in addition to stderr)
     #[arg(short, long)]
@@ -82,6 +90,10 @@ pub(crate) struct Tracer {
     pub(crate) initial_pid: Option<Pid>,
     pub(crate) start_time: Instant,
     pub(crate) perf: PerfState,
+    pub(crate) ebpf_tracker: Option<ebpf::EbpfTracker>,
+    pub(crate) ebpf_stats: EbpfStats,
+    pub(crate) pending_block_io: Option<PendingBlockIoGroup>,
+    pub(crate) ktime_base_ns: u64,
     pub(crate) output_file: Option<File>,
     pub(crate) events: Vec<TraceEvent>,
     pub(crate) event_count: usize,
@@ -120,6 +132,10 @@ impl Tracer {
                 page_faults: 0,
                 page_size,
             },
+            ebpf_tracker: None,
+            ebpf_stats: EbpfStats::default(),
+            pending_block_io: None,
+            ktime_base_ns: 0,
             output_file,
             events: Vec::new(),
             event_count: 0,
@@ -152,13 +168,99 @@ impl Tracer {
         }
     }
 
-    /// Format the event prefix: `[+0.001s]` or `[+0.001s] [PID]` if multiple tasks.
+    /// Format the event prefix using the current wall-clock time.
+    ///
+    /// Used for ptrace and perf events where we observe the event at the
+    /// moment it happens. For eBPF events (which carry kernel timestamps),
+    /// use [`event_prefix_at`](Self::event_prefix_at) instead.
     pub(crate) fn event_prefix(&self, pid: Pid) -> String {
         let elapsed = self.start_time.elapsed().as_secs_f64();
         if self.processes.len() > 1 {
             format!("[+{:.3}s] [{}]", elapsed, pid)
         } else {
             format!("[+{:.3}s]", elapsed)
+        }
+    }
+
+    /// Convert a kernel `bpf_ktime_get_ns()` timestamp to tracer-relative seconds.
+    ///
+    /// Both `bpf_ktime_get_ns()` and Rust's `Instant` use `CLOCK_MONOTONIC`,
+    /// so subtracting the base sampled at tracer start gives the correct offset.
+    pub(crate) fn ktime_to_secs(&self, ktime_ns: u64) -> f64 {
+        ktime_ns.saturating_sub(self.ktime_base_ns) as f64 / 1_000_000_000.0
+    }
+
+    /// Format event prefix using a kernel-provided timestamp.
+    ///
+    /// Used for eBPF events where the actual event time is known from
+    /// `bpf_ktime_get_ns()`, which may differ from when userspace drains it.
+    pub(crate) fn event_prefix_at(&self, pid: Pid, timestamp_secs: f64) -> String {
+        if self.processes.len() > 1 {
+            format!("[+{:.3}s] [{}]", timestamp_secs, pid)
+        } else {
+            format!("[+{:.3}s]", timestamp_secs)
+        }
+    }
+
+    /// Record a trace event with a kernel-provided timestamp.
+    ///
+    /// Used for eBPF events. For ptrace/perf events observed in real time,
+    /// use [`record_event`](Self::record_event) instead.
+    pub(crate) fn record_event_at(&mut self, pid: Pid, kind: EventKind, timestamp_secs: f64) {
+        self.event_count += 1;
+        if self.config.report_path.is_some() && self.events.len() < self.config.max_report_events {
+            self.events.push(TraceEvent {
+                timestamp_secs,
+                pid: pid.as_raw(),
+                kind,
+            });
+        }
+    }
+
+    /// Flush any pending block I/O group accumulated across poll iterations.
+    ///
+    /// Called before ptrace event processing so grouped eBPF output appears
+    /// before the next ptrace event, and at the end of tracing.
+    pub(crate) fn flush_block_io_group(&mut self) {
+        if let Some(g) = self.pending_block_io.take() {
+            if g.count == 1 {
+                self.output(&format!(
+                    "{} block I/O {} ({})",
+                    self.event_prefix_at(g.pid, g.first_ts),
+                    format_ns(g.total_latency_ns),
+                    format_bytes(g.bytes_per_op),
+                ));
+                self.record_event_at(
+                    g.pid,
+                    EventKind::BlockIo {
+                        latency_ns: g.total_latency_ns,
+                        bytes: g.bytes_per_op,
+                    },
+                    g.first_ts,
+                );
+            } else {
+                let avg_ns = g.total_latency_ns / g.count;
+                self.output(&format!(
+                    "{} block I/O {} avg, {} max ({} x{}, {} total)",
+                    self.event_prefix_at(g.pid, g.first_ts),
+                    format_ns(avg_ns),
+                    format_ns(g.max_latency_ns),
+                    format_bytes(g.bytes_per_op),
+                    g.count,
+                    format_bytes(g.bytes_per_op.saturating_mul(g.count)),
+                ));
+                self.record_event_at(
+                    g.pid,
+                    EventKind::BlockIoGroup {
+                        count: g.count,
+                        bytes_per_op: g.bytes_per_op,
+                        total_bytes: g.bytes_per_op.saturating_mul(g.count),
+                        avg_latency_ns: avg_ns,
+                        max_latency_ns: g.max_latency_ns,
+                    },
+                    g.first_ts,
+                );
+            }
         }
     }
 
@@ -187,9 +289,30 @@ impl Tracer {
         self.memory.entry(leader).or_default()
     }
 
-    fn run(&mut self, initial_pid: Pid, track_faults: bool, attached: bool) -> Result<()> {
+    fn run(
+        &mut self,
+        initial_pid: Pid,
+        track_faults: bool,
+        track_ebpf: bool,
+        attached: bool,
+    ) -> Result<()> {
         self.initial_pid = Some(initial_pid);
         self.start_time = Instant::now();
+        // Sample CLOCK_MONOTONIC (same clock as bpf_ktime_get_ns) alongside
+        // start_time so we can convert kernel timestamps to tracer-relative seconds.
+        self.ktime_base_ns = {
+            let mut ts = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            let ret = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
+            assert!(
+                ret == 0,
+                "clock_gettime(CLOCK_MONOTONIC) failed: {}",
+                std::io::Error::last_os_error()
+            );
+            ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+        };
         self.add_process(initial_pid);
 
         // Print initial program start separator (only when spawning, not attaching)
@@ -225,6 +348,23 @@ impl Tracer {
             None
         };
 
+        // Set up eBPF tracing if requested
+        if track_ebpf {
+            match ebpf::EbpfTracker::new(initial_pid.as_raw() as u32) {
+                Ok(tracker) => {
+                    eprintln!("compendium: eBPF tracing enabled (sched latency + block I/O)");
+                    self.ebpf_tracker = Some(tracker);
+                    self.ebpf_stats.enabled = true;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Note: eBPF tracing failed ({}). Run with sudo or grant CAP_BPF+CAP_PERFMON.",
+                        e
+                    );
+                }
+            }
+        }
+
         // Set up signalfd for SIGCHLD to use poll() for proper event ordering
         let mut mask = SigSet::empty();
         mask.add(Signal::SIGCHLD);
@@ -240,23 +380,39 @@ impl Tracer {
         ptrace::setoptions(initial_pid, options)?;
         ptrace::syscall(initial_pid, None)?;
 
-        loop {
-            // Build poll fds
+        'poll: loop {
+            // Build poll fds — track indices so we check the right revents
             let mut poll_fds = vec![libc::pollfd {
                 fd: signal_fd.as_raw_fd(),
                 events: libc::POLLIN,
                 revents: 0,
             }];
 
-            if let Some(ref perf) = perf_tracker {
+            let perf_poll_idx = if let Some(ref perf) = perf_tracker {
+                let idx = poll_fds.len();
                 poll_fds.push(libc::pollfd {
                     fd: perf.raw_fd(),
                     events: libc::POLLIN,
                     revents: 0,
                 });
-            }
+                Some(idx)
+            } else {
+                None
+            };
 
-            // Wait for either SIGCHLD (tracee event) or perf event
+            let ebpf_poll_idx = if let Some(ref tracker) = self.ebpf_tracker {
+                let idx = poll_fds.len();
+                poll_fds.push(libc::pollfd {
+                    fd: tracker.poll_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+                Some(idx)
+            } else {
+                None
+            };
+
+            // Wait for either SIGCHLD (tracee event), perf event, or eBPF event
             let ret =
                 unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, -1) };
             if ret < 0 {
@@ -267,9 +423,46 @@ impl Tracer {
                 return Err(err).context("poll failed");
             }
 
-            // Check for page fault events first (they may have happened before the syscall)
-            if poll_fds.len() > 1
-                && poll_fds[1].revents & libc::POLLIN != 0
+            // Drain eBPF ring buffer first — these events carry kernel timestamps
+            // (bpf_ktime_get_ns) that are always earlier than the current wall-clock
+            // time used by perf and ptrace events below, so printing them first
+            // preserves chronological order within each poll iteration.
+            //
+            // Note: eBPF events that fire *during* ptrace processing accumulate in
+            // the ring buffer and are only drained in the next iteration, so they
+            // may print after ptrace events that are chronologically later. The
+            // timestamps on each line are still accurate; only the line ordering
+            // can be slightly off in that cross-iteration case. The HTML report
+            // (--report) is not affected — events are sorted by timestamp before
+            // the report is generated.
+            if let Some(idx) = ebpf_poll_idx {
+                if poll_fds[idx].revents & libc::POLLIN != 0 {
+                    let events = self.ebpf_tracker.as_ref().unwrap().consume_and_drain();
+                    if !events.is_empty() {
+                        self.process_ebpf_events(&events);
+                    }
+                }
+                if poll_fds[idx].revents & (libc::POLLERR | libc::POLLHUP) != 0 {
+                    eprintln!(
+                        "compendium: warning: eBPF ring buffer fd error/hangup, disabling eBPF"
+                    );
+                    // Final drain before disabling — take tracker to avoid borrow conflict
+                    if let Some(tracker) = self.ebpf_tracker.take() {
+                        let events = tracker.consume_and_drain();
+                        let dropped = tracker.dropped_count();
+                        if !events.is_empty() {
+                            self.process_ebpf_events(&events);
+                        }
+                        self.ebpf_stats.dropped_events = dropped;
+                    }
+                    self.flush_block_io_group();
+                    // ebpf_tracker is already None from take()
+                }
+            }
+
+            // Page fault events (perf_event fd)
+            if let Some(idx) = perf_poll_idx
+                && poll_fds[idx].revents & libc::POLLIN != 0
                 && let Some(ref mut perf) = perf_tracker
             {
                 self.process_page_faults(perf);
@@ -277,6 +470,8 @@ impl Tracer {
 
             // Check for tracee events
             if poll_fds[0].revents & libc::POLLIN != 0 {
+                // Flush any accumulated block I/O group before ptrace output
+                self.flush_block_io_group();
                 // Drain all pending signals from signalfd
                 let mut got_sigchld = false;
                 while let Ok(Some(sig)) = signal_fd.read_signal() {
@@ -284,7 +479,7 @@ impl Tracer {
                         self.interrupt_count += 1;
                         if attached {
                             self.detach_all();
-                            return Ok(());
+                            break 'poll;
                         } else if self.interrupt_count == 1 {
                             self.output(
                                 "\ncompendium: interrupted, waiting for process to exit \
@@ -292,7 +487,7 @@ impl Tracer {
                             );
                         } else {
                             self.force_kill_all();
-                            return Ok(());
+                            break 'poll;
                         }
                     } else {
                         got_sigchld = true;
@@ -314,12 +509,12 @@ impl Tracer {
                         }
                         Ok(WaitStatus::Exited(pid, code)) => {
                             if self.handle_process_exit(pid, Some(code), None) {
-                                return Ok(());
+                                break 'poll;
                             }
                         }
                         Ok(WaitStatus::Signaled(pid, sig, _)) => {
                             if self.handle_process_exit(pid, None, Some(sig)) {
-                                return Ok(());
+                                break 'poll;
                             }
                         }
                         Ok(_) => {}
@@ -328,13 +523,29 @@ impl Tracer {
                                 self.total_heap_bytes += proc.brk.heap_size();
                             }
                             self.processes.clear();
-                            return Ok(());
+                            break 'poll;
                         }
                         Err(_) => break,
                     }
                 }
             }
         }
+
+        // Final drain of eBPF ring buffer — events may have accumulated
+        // between the last poll iteration and process exit.
+        // Take the tracker temporarily to avoid borrow conflict with process_ebpf_events.
+        if let Some(tracker) = self.ebpf_tracker.take() {
+            let events = tracker.consume_and_drain();
+            let dropped = tracker.dropped_count();
+            if !events.is_empty() {
+                self.process_ebpf_events(&events);
+            }
+            self.ebpf_stats.dropped_events = dropped;
+            self.ebpf_tracker = Some(tracker);
+        }
+        self.flush_block_io_group();
+
+        Ok(())
     }
 }
 
@@ -365,7 +576,7 @@ fn main() -> Result<()> {
         args.report,
         args.max_report_events,
     )?;
-    tracer.run(pid, args.faults, attached)?;
+    tracer.run(pid, args.faults, args.ebpf, attached)?;
 
     // Unblock SIGINT so Ctrl-C works normally during summary/report generation
     let mut unblock = SigSet::empty();

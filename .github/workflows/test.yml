@@ -43,5 +43,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-
 
+      - name: Install libbpf dependencies
+        run: sudo apt-get update && sudo apt-get install -y libelf-dev zlib1g-dev
+
       - name: Run tests
         run: cargo test --all-features

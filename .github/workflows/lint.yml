@@ -59,5 +59,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-
 
+      - name: Install libbpf dependencies
+        run: sudo apt-get update && sudo apt-get install -y libelf-dev zlib1g-dev
+
       - name: Run Clippy
         run: cargo clippy -- -D warnings

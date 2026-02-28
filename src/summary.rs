@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use crate::events::{EventKind, TraceEvent};
-use crate::types::format_bytes;
+use crate::types::{format_bytes, format_ns};
 use crate::{Tracer, report};
 
 /// Build a [`ReportSummary`](report::ReportSummary) from the current tracer state.
@@ -51,6 +51,22 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
         page_faults: tracer.perf.page_faults,
         page_fault_bytes: tracer.perf.page_faults * tracer.perf.page_size,
         perf_enabled: tracer.perf.enabled,
+        ebpf_enabled: tracer.ebpf_stats.enabled,
+        sched_delays: tracer.ebpf_stats.sched_delays,
+        avg_sched_delay_ns: if tracer.ebpf_stats.sched_delays > 0 {
+            tracer.ebpf_stats.total_sched_delay_ns / tracer.ebpf_stats.sched_delays
+        } else {
+            0
+        },
+        max_sched_delay_ns: tracer.ebpf_stats.max_sched_delay_ns,
+        block_io_ops: tracer.ebpf_stats.block_io_ops,
+        avg_block_io_ns: if tracer.ebpf_stats.block_io_ops > 0 {
+            tracer.ebpf_stats.total_block_io_ns / tracer.ebpf_stats.block_io_ops
+        } else {
+            0
+        },
+        max_block_io_ns: tracer.ebpf_stats.max_block_io_ns,
+        ebpf_dropped_events: tracer.ebpf_stats.dropped_events,
         truncated: None,
         original_event_count: None,
     }
@@ -85,6 +101,39 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
             "   Total:     {}",
             format_bytes(summary.page_fault_bytes)
         ));
+    }
+
+    if summary.ebpf_enabled {
+        if summary.sched_delays > 0 {
+            tracer.output(" Scheduler latency (eBPF):");
+            tracer.output(&format!("   Delays:    {}", summary.sched_delays));
+            tracer.output(&format!(
+                "   Avg delay: {}",
+                format_ns(summary.avg_sched_delay_ns)
+            ));
+            tracer.output(&format!(
+                "   Max delay: {}",
+                format_ns(summary.max_sched_delay_ns)
+            ));
+        }
+        if summary.block_io_ops > 0 {
+            tracer.output(" Block I/O latency (eBPF):");
+            tracer.output(&format!("   Operations: {}", summary.block_io_ops));
+            tracer.output(&format!(
+                "   Avg latency: {}",
+                format_ns(summary.avg_block_io_ns)
+            ));
+            tracer.output(&format!(
+                "   Max latency: {}",
+                format_ns(summary.max_block_io_ns)
+            ));
+        }
+        if summary.ebpf_dropped_events > 0 {
+            tracer.output(&format!(
+                " eBPF dropped events: {} (ring buffer full)",
+                summary.ebpf_dropped_events
+            ));
+        }
     }
 
     tracer.output(" I/O:");
@@ -138,6 +187,11 @@ pub(crate) fn print_final_summary(tracer: &mut Tracer) {
     // Generate HTML report if requested
     if let Some(ref report_path) = tracer.config.report_path {
         let original_count = tracer.event_count;
+        // Sort by timestamp so eBPF events (which carry kernel timestamps)
+        // interleave correctly with ptrace events in the timeline.
+        tracer
+            .events
+            .sort_by(|a, b| a.timestamp_secs.total_cmp(&b.timestamp_secs));
         let coalesced = report::coalesce_events(&tracer.events);
         let max = tracer.config.max_report_events;
 

@@ -1,3 +1,4 @@
 /target
 /traces
 CLAUDE.md
+bpf/vmlinux.h
