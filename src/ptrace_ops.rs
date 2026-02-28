@@ -117,6 +117,9 @@ impl Tracer {
             if let Ok(new_pid) = ptrace::getevent(pid) {
                 let new_pid = Pid::from_raw(new_pid as i32);
                 self.add_process(new_pid);
+                if let Some(ref ebpf) = self.ebpf_tracker {
+                    ebpf.add_pid(new_pid.as_raw() as u32);
+                }
                 self.output(&format!(
                     "{} spawn process {}",
                     self.event_prefix(pid),
@@ -139,6 +142,9 @@ impl Tracer {
                     .map(|p| p.leader_pid)
                     .unwrap_or(pid);
                 self.add_process(new_tid);
+                if let Some(ref ebpf) = self.ebpf_tracker {
+                    ebpf.add_pid(new_tid.as_raw() as u32);
+                }
                 if let Some(proc) = self.processes.get_mut(&new_tid) {
                     proc.leader_pid = parent_leader;
                 }
@@ -223,6 +229,9 @@ impl Tracer {
                     signal: signal_opt,
                 },
             );
+        }
+        if let Some(ref ebpf) = self.ebpf_tracker {
+            ebpf.remove_pid(pid.as_raw() as u32);
         }
         if let Some(proc) = self.processes.get(&pid) {
             self.total_heap_bytes += proc.brk.heap_size();

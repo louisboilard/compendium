@@ -220,6 +220,33 @@ pub(crate) struct PerfState {
     pub(crate) page_size: u64,
 }
 
+/// Aggregated eBPF-sourced statistics (scheduler latency + block I/O latency).
+#[derive(Default)]
+pub(crate) struct EbpfStats {
+    pub(crate) enabled: bool,
+    pub(crate) sched_delays: u64,
+    pub(crate) total_sched_delay_ns: u64,
+    pub(crate) max_sched_delay_ns: u64,
+    pub(crate) block_io_ops: u64,
+    pub(crate) total_block_io_ns: u64,
+    pub(crate) max_block_io_ns: u64,
+    pub(crate) dropped_events: u64,
+}
+
+/// Pending block I/O group for non-verbose coalesced output.
+///
+/// Persists across poll iterations so consecutive same-PID same-size
+/// block I/O events are grouped even when they trickle in across
+/// multiple ring buffer drains.
+pub(crate) struct PendingBlockIoGroup {
+    pub(crate) pid: Pid,
+    pub(crate) first_ts: f64,
+    pub(crate) count: u64,
+    pub(crate) total_latency_ns: u64,
+    pub(crate) max_latency_ns: u64,
+    pub(crate) bytes_per_op: u64,
+}
+
 /// Per-process tracing state.
 ///
 /// Tracks the syscall entry/exit toggle, the last syscall number and args
@@ -244,6 +271,21 @@ pub(crate) struct ProcessState {
 /// format_bytes(1024)        => "  1.0 KB"
 /// format_bytes(1_048_576)   => "  1.0 MB"
 /// ```
+/// Format a nanosecond duration as a human-readable string.
+///
+/// Uses us/ms/s suffixes. Values under 1 us are shown as whole nanoseconds.
+pub(crate) fn format_ns(ns: u64) -> String {
+    if ns >= 1_000_000_000 {
+        format!("{:.1}s", ns as f64 / 1_000_000_000.0)
+    } else if ns >= 1_000_000 {
+        format!("{:.1}ms", ns as f64 / 1_000_000.0)
+    } else if ns >= 1_000 {
+        format!("{:.0}us", ns as f64 / 1_000.0)
+    } else {
+        format!("{}ns", ns)
+    }
+}
+
 pub(crate) fn format_bytes(bytes: u64) -> String {
     let s = if bytes >= 1_073_741_824 {
         format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
@@ -286,6 +328,48 @@ mod tests {
     #[test]
     fn format_bytes_gb_boundary() {
         assert_eq!(format_bytes(1_073_741_824), "  1.0 GB");
+    }
+
+    // format_ns tests
+
+    #[test]
+    fn format_ns_zero() {
+        assert_eq!(format_ns(0), "0ns");
+    }
+
+    #[test]
+    fn format_ns_nanoseconds() {
+        assert_eq!(format_ns(999), "999ns");
+    }
+
+    #[test]
+    fn format_ns_microseconds_boundary() {
+        assert_eq!(format_ns(1_000), "1us");
+    }
+
+    #[test]
+    fn format_ns_microseconds() {
+        assert_eq!(format_ns(10_000), "10us");
+    }
+
+    #[test]
+    fn format_ns_milliseconds_boundary() {
+        assert_eq!(format_ns(1_000_000), "1.0ms");
+    }
+
+    #[test]
+    fn format_ns_milliseconds() {
+        assert_eq!(format_ns(250_000_000), "250.0ms");
+    }
+
+    #[test]
+    fn format_ns_seconds_boundary() {
+        assert_eq!(format_ns(1_000_000_000), "1.0s");
+    }
+
+    #[test]
+    fn format_ns_seconds() {
+        assert_eq!(format_ns(5_500_000_000), "5.5s");
     }
 
     // ProcessBrk tests

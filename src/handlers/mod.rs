@@ -9,6 +9,7 @@
 //! - [`mem`] — address space changes (brk, mmap, munmap)
 //! - [`page_faults`] — perf-sampled page fault grouping
 
+pub(crate) mod ebpf_events;
 mod fd;
 mod io;
 mod mem;
