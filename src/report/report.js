@@ -20,6 +20,7 @@
             case "connect": case "send": case "recv": return "network";
             case "brk": case "mmap": case "fault": case "fault_group": return "memory";
             case "read": case "write": case "copy_file_range": case "sendfile": return "io";
+            case "sched_delay": case "block_io": case "block_io_group": return "kernel";
             case "spawn_process": case "spawn_thread": case "exec": case "exit_thread": case "truncated": return "process";
             default: return "file";
         }
@@ -31,9 +32,17 @@
             case "network": return "#22c55e";
             case "memory": return "#f97316";
             case "io": return "#a855f7";
+            case "kernel": return "#06b6d4";
             case "process": return "#ef4444";
             default: return "#64748b";
         }
+    }
+
+    function formatNs(ns) {
+        if (ns >= 1000000000) return (ns / 1000000000).toFixed(1) + "s";
+        if (ns >= 1000000) return (ns / 1000000).toFixed(1) + "ms";
+        if (ns >= 1000) return Math.round(ns / 1000) + "us";
+        return ns + "ns";
     }
 
     function formatEventDetail(e) {
@@ -54,6 +63,9 @@
             case "exit_thread": return "pid " + e.exit_pid + (e.code != null ? " code " + e.code : "") + (e.signal != null ? " signal " + e.signal : "");
             case "fault": return e.addr + " in " + e.region_name + " (" + e.prot + ")";
             case "fault_group": return e.count + " faults in " + e.region_name + " @ " + e.region_start + " (" + e.prot + ")";
+            case "sched_delay": return "waited " + formatNs(e.delay_ns);
+            case "block_io": return formatNs(e.latency_ns) + " (" + formatBytes(e.bytes) + ")";
+            case "block_io_group": return e.count + "\u00d7 " + formatBytes(e.bytes_per_op) + " (" + formatBytes(e.total_bytes) + " total) avg " + formatNs(e.avg_latency_ns) + " / max " + formatNs(e.max_latency_ns);
             case "truncated": return "showing " + e.kept_count + " of " + e.original_count + " events";
             default: return "";
         }
@@ -72,6 +84,12 @@
         if (SUMMARY.perf_enabled) {
             cards.push({ label: "Page Faults", value: String(SUMMARY.page_faults), detail: formatBytes(SUMMARY.page_fault_bytes) + " touched" });
         }
+        if (SUMMARY.ebpf_enabled && SUMMARY.sched_delays > 0) {
+            cards.push({ label: "Sched Latency", value: String(SUMMARY.sched_delays), detail: "avg " + formatNs(SUMMARY.avg_sched_delay_ns) + " / max " + formatNs(SUMMARY.max_sched_delay_ns) });
+        }
+        if (SUMMARY.ebpf_enabled && SUMMARY.block_io_ops > 0) {
+            cards.push({ label: "Block I/O", value: String(SUMMARY.block_io_ops), detail: "avg " + formatNs(SUMMARY.avg_block_io_ns) + " / max " + formatNs(SUMMARY.max_block_io_ns) });
+        }
         cards.forEach(function (c) {
             var div = document.createElement("div");
             div.className = "card";
@@ -81,7 +99,7 @@
     }
 
     // --- Filters ---
-    var activeFilters = { file: true, network: true, memory: true, io: true, process: true };
+    var activeFilters = { file: true, network: true, memory: true, io: true, kernel: true, process: true };
     var activeTypes = {};
     EVENTS.forEach(function (ev) { activeTypes[ev.kind.type] = true; });
 
@@ -128,7 +146,7 @@
 
     function renderFilters() {
         var container = document.getElementById("filters");
-        ["file", "network", "memory", "io", "process"].forEach(function (cat) {
+        ["file", "network", "memory", "io", "kernel", "process"].forEach(function (cat) {
             var btn = document.createElement("button");
             btn.className = "filter-pill active";
             btn.style.setProperty("--cat-color", catColor(cat));

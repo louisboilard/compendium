@@ -258,6 +258,7 @@ body {
 .timeline-svg .evt-memory { fill: #f97316; }
 .timeline-svg .evt-io { fill: #a855f7; }
 .timeline-svg .evt-process { fill: #ef4444; }
+.timeline-svg .evt-kernel { fill: #06b6d4; }
 
 /* IO: lighter=read, darker=write */
 .timeline-svg .evtt-read { fill: #c084fc; }
@@ -281,6 +282,11 @@ body {
 .timeline-svg .evtt-spawn_thread { fill: #f87171; }
 .timeline-svg .evtt-exec { fill: #dc2626; }
 .timeline-svg .evtt-exit_thread { fill: #fb7185; }
+
+/* Kernel (eBPF) */
+.timeline-svg .evtt-sched_delay { fill: #22d3ee; }
+.timeline-svg .evtt-block_io { fill: #0891b2; }
+.timeline-svg .evtt-block_io_group { fill: #0891b2; }
 
 /* File */
 .timeline-svg .evtt-open { fill: #3b82f6; }
@@ -403,6 +409,7 @@ body {
 .cat-memory { background: rgba(249, 115, 22, 0.15); color: #fb923c; }
 .cat-io { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
 .cat-process { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.cat-kernel { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
 
 .table-row .col-type { color: #cbd5e1; }
 
@@ -422,6 +429,9 @@ body {
 .table-row .typc-exec { color: #dc2626; }
 .table-row .typc-exit_thread { color: #fb7185; }
 .table-row .typc-open { color: #60a5fa; }
+.table-row .typc-sched_delay { color: #22d3ee; }
+.table-row .typc-block_io { color: #0891b2; }
+.table-row .typc-block_io_group { color: #0891b2; }
 .table-row .col-detail { color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Process filter */

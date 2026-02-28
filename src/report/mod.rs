@@ -37,6 +37,14 @@ pub struct ReportSummary {
     pub page_faults: u64,
     pub page_fault_bytes: u64,
     pub perf_enabled: bool,
+    pub ebpf_enabled: bool,
+    pub sched_delays: u64,
+    pub avg_sched_delay_ns: u64,
+    pub max_sched_delay_ns: u64,
+    pub block_io_ops: u64,
+    pub avg_block_io_ns: u64,
+    pub max_block_io_ns: u64,
+    pub ebpf_dropped_events: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -397,6 +405,80 @@ mod tests {
         }
     }
 
+    // coalesce_events: eBPF events must pass through unmerged
+
+    #[test]
+    fn coalesce_sched_delay_not_merged() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 100,
+                kind: EventKind::SchedDelay { delay_ns: 50_000 },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 100,
+                kind: EventKind::SchedDelay { delay_ns: 80_000 },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn coalesce_block_io_not_merged() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 100,
+                kind: EventKind::BlockIo {
+                    latency_ns: 1_000_000,
+                    bytes: 4096,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 100,
+                kind: EventKind::BlockIo {
+                    latency_ns: 2_000_000,
+                    bytes: 4096,
+                },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn coalesce_block_io_group_not_merged() {
+        let events = vec![
+            TraceEvent {
+                timestamp_secs: 0.1,
+                pid: 100,
+                kind: EventKind::BlockIoGroup {
+                    count: 10,
+                    bytes_per_op: 4096,
+                    total_bytes: 40960,
+                    avg_latency_ns: 500_000,
+                    max_latency_ns: 1_000_000,
+                },
+            },
+            TraceEvent {
+                timestamp_secs: 0.2,
+                pid: 100,
+                kind: EventKind::BlockIoGroup {
+                    count: 5,
+                    bytes_per_op: 4096,
+                    total_bytes: 20480,
+                    avg_latency_ns: 300_000,
+                    max_latency_ns: 800_000,
+                },
+            },
+        ];
+        let result = coalesce_events(&events);
+        assert_eq!(result.len(), 2);
+    }
+
     // generate test
 
     #[test]
@@ -435,6 +517,14 @@ mod tests {
             page_faults: 0,
             page_fault_bytes: 0,
             perf_enabled: false,
+            ebpf_enabled: false,
+            sched_delays: 0,
+            avg_sched_delay_ns: 0,
+            max_sched_delay_ns: 0,
+            block_io_ops: 0,
+            avg_block_io_ns: 0,
+            max_block_io_ns: 0,
+            ebpf_dropped_events: 0,
             truncated: None,
             original_event_count: None,
         };
