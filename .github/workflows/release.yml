@@ -46,7 +46,7 @@ jobs:
         run: mv target/release/compendium compendium-linux-x86_64
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: compendium-linux-x86_64
           path: compendium-linux-x86_64
