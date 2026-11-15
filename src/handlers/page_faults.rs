@@ -35,13 +35,10 @@ impl Tracer {
 
             // Check if address is in heap (per-process) or anon mmap region
             let (leader, in_heap) = if let Some(proc) = self.processes.get(&pid) {
-                let heap_start = proc.brk.initial_brk.and_then(|initial| {
-                    if event.addr >= initial && event.addr < proc.brk.current_brk {
-                        Some(initial)
-                    } else {
-                        None
-                    }
-                });
+                let heap_start = proc
+                    .brk
+                    .initial_brk
+                    .filter(|&initial| event.addr >= initial && event.addr < proc.brk.current_brk);
                 (proc.leader_pid, heap_start)
             } else {
                 (pid, None)

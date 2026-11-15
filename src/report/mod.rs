@@ -188,7 +188,7 @@ window.TRACE_SUMMARY = {summary_json};
 </html>"##,
         css = css,
         command = html_escape(&summary.command),
-        duration = &summary.duration_display,
+        duration = summary.duration_display,
         count = summary.event_count,
         events_json = events_json,
         summary_json = summary_json,

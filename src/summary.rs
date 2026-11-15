@@ -53,18 +53,18 @@ fn compute_summary(tracer: &Tracer) -> report::ReportSummary {
         perf_enabled: tracer.perf.enabled,
         ebpf_enabled: tracer.ebpf_stats.enabled,
         sched_delays: tracer.ebpf_stats.sched_delays,
-        avg_sched_delay_ns: if tracer.ebpf_stats.sched_delays > 0 {
-            tracer.ebpf_stats.total_sched_delay_ns / tracer.ebpf_stats.sched_delays
-        } else {
-            0
-        },
+        avg_sched_delay_ns: tracer
+            .ebpf_stats
+            .total_sched_delay_ns
+            .checked_div(tracer.ebpf_stats.sched_delays)
+            .unwrap_or(0),
         max_sched_delay_ns: tracer.ebpf_stats.max_sched_delay_ns,
         block_io_ops: tracer.ebpf_stats.block_io_ops,
-        avg_block_io_ns: if tracer.ebpf_stats.block_io_ops > 0 {
-            tracer.ebpf_stats.total_block_io_ns / tracer.ebpf_stats.block_io_ops
-        } else {
-            0
-        },
+        avg_block_io_ns: tracer
+            .ebpf_stats
+            .total_block_io_ns
+            .checked_div(tracer.ebpf_stats.block_io_ops)
+            .unwrap_or(0),
         max_block_io_ns: tracer.ebpf_stats.max_block_io_ns,
         ebpf_dropped_events: tracer.ebpf_stats.dropped_events,
         truncated: None,
