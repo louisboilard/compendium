@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/louisboilard/compendium"
 
 [dependencies]
-nix = { version = "0.31", features = ["ptrace", "signal", "process"] }
+nix = { version = "0.32", features = ["ptrace", "signal", "process"] }
 libc = "0.2"
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
